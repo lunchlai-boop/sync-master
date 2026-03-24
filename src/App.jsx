@@ -1,4 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+
+/* ─────────────────────────────────────────────
+   FIREBASE INIT
+───────────────────────────────────────────── */
+const firebaseConfig = {
+  apiKey: "AIzaSyDnjLGARxVkm6D6e-Lz9yODXCELG2JD21o",
+  authDomain: "sync-master-3098b.firebaseapp.com",
+  projectId: "sync-master-3098b",
+  storageBucket: "sync-master-3098b.firebasestorage.app",
+  messagingSenderId: "831218337276",
+  appId: "1:831218337276:web:d4b7ef7a65c806e0a51e79"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 /* ─────────────────────────────────────────────
    UTILS
@@ -8,7 +24,6 @@ function genId(len = 10) {
   return Array.from(crypto.getRandomValues(new Uint8Array(len)))
     .map(b => chars[b % chars.length]).join("");
 }
-function genAdminToken() { return genId(20); }
 function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
@@ -21,28 +36,28 @@ function formatMonthTW(y, m) {
 }
 
 /* ─────────────────────────────────────────────
-   STORAGE HELPERS  (shared: true = cross-device)
-   Key schema:
-     poll:{roomId}          → { roomId, title, creatorName, adminToken, createdAt }
-     responses:{roomId}     → { [dancerName]: { [dateStr]: ["HH:MM~HH:MM",...] } }
+   FIRESTORE HELPERS
+   Collections:
+     polls/{roomId}          → { roomId, title, creatorName, adminToken, totalMembers, createdAt }
+     responses/{roomId}      → { [dancerName]: { [dateStr]: ["HH:MM~HH:MM",...] } }
 ───────────────────────────────────────────── */
 async function loadPoll(roomId) {
   try {
-    const r = await window.storage.get(`poll:${roomId}`, true);
-    return r ? JSON.parse(r.value) : null;
+    const snap = await getDoc(doc(db, "polls", roomId));
+    return snap.exists() ? snap.data() : null;
   } catch { return null; }
 }
 async function savePoll(poll) {
-  await window.storage.set(`poll:${poll.roomId}`, JSON.stringify(poll), true);
+  await setDoc(doc(db, "polls", poll.roomId), poll);
 }
 async function loadResponses(roomId) {
   try {
-    const r = await window.storage.get(`responses:${roomId}`, true);
-    return r ? JSON.parse(r.value) : {};
+    const snap = await getDoc(doc(db, "responses", roomId));
+    return snap.exists() ? snap.data() : {};
   } catch { return {}; }
 }
 async function saveResponses(roomId, responses) {
-  await window.storage.set(`responses:${roomId}`, JSON.stringify(responses), true);
+  await setDoc(doc(db, "responses", roomId), responses);
 }
 
 /* ─────────────────────────────────────────────
