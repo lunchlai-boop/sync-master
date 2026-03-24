@@ -70,13 +70,19 @@ async function loadResponses(roomId) {
   } catch { return {}; }
 }
 async function saveResponses(roomId, responses, dancerName) {
-  if (dancerName) {
-    // Merge: only update this dancer's key, don't overwrite others
-    const update = { [dancerName]: responses[dancerName] !== undefined ? responses[dancerName] : {} };
-    await setDoc(doc(db, "responses", roomId), update, { merge: true });
-  } else {
-    // Initial creation (empty doc)
-    await setDoc(doc(db, "responses", roomId), responses);
+  try {
+    if (dancerName) {
+      const dancerData = responses[dancerName];
+      // Firestore doesn't allow undefined values — sanitize
+      const clean = dancerData ? JSON.parse(JSON.stringify(dancerData)) : {};
+      const update = { [dancerName]: clean };
+      await setDoc(doc(db, "responses", roomId), update, { merge: true });
+    } else {
+      await setDoc(doc(db, "responses", roomId), responses);
+    }
+  } catch(e) {
+    console.error("saveResponses error:", e, { roomId, dancerName });
+    throw e; // re-throw so caller can show error
   }
 }
 
@@ -683,8 +689,12 @@ function FillView({ poll }) {
     if (updated[dancer][selDate].includes(slot)) { toast.show("此時段已存在"); return; }
     updated[dancer][selDate] = [...updated[dancer][selDate], slot].sort();
     setResponses(updated);
-    await saveResponses(poll.roomId, updated, dancer);
-    toast.show("✓ 已儲存");
+    try {
+      await saveResponses(poll.roomId, updated, dancer);
+      toast.show("✓ 已儲存");
+    } catch(e) {
+      toast.show("❌ 儲存失敗，請重試");
+    }
   }
 
   async function removeSlot(slot) {
@@ -693,7 +703,11 @@ function FillView({ poll }) {
     if (!updated[dancer][selDate].length) delete updated[dancer][selDate];
     if (!Object.keys(updated[dancer]||{}).length) delete updated[dancer];
     setResponses(updated);
-    await saveResponses(poll.roomId, updated, dancer);
+    try {
+      await saveResponses(poll.roomId, updated, dancer);
+    } catch(e) {
+      toast.show("❌ 儲存失敗，請重試");
+    }
   }
 
   function changeMonth(dir) {
