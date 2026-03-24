@@ -1444,7 +1444,7 @@ function SuperAdminView() {
             const daysLeft = Math.max(0, Math.ceil((EXPIRE_MS - age) / (24*60*60*1000)));
             const isExpired = age > EXPIRE_MS;
             const memberLink = `${base}?room=${p.roomId}`;
-            const adminLink = `${base}?room=${p.roomId}&admin=1`;
+            const adminLink = `${base}?room=${p.roomId}&admin=${p.adminToken}&bypass=super`;
             return (
               <div key={p.roomId} style={{
                 background:"var(--surface)", border:`1px solid ${isExpired?"rgba(255,90,122,.25)":"var(--border)"}`,
@@ -1513,7 +1513,10 @@ export default function App() {
       if (p === "expired") { setView("expired"); return; }
       setPoll(p);
       // ?admin param just routes to pin-gate; actual auth happens there
-      if (adminToken === "1") {
+      const bypassParam = new URLSearchParams(window.location.search).get("bypass");
+      if (bypassParam === "super" && adminToken === p.adminToken) {
+        setView("admin"); // superadmin bypass — skip pin gate
+      } else if (adminToken === "1") {
         setView("admingate");
       } else {
         setView("fill");
