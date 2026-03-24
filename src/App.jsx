@@ -295,7 +295,7 @@ function HomeView({ onCreated, onJoined }) {
     <>
       <div className="hero">
         <h1 style={{color:"var(--accent)"}}>時間統整大師</h1>
-        <p>發起一次統計，取得專屬連結分享給成員，即時看到所有人可以的時段</p>
+        <p>大家很難約？<br/>發起、填寫、看結果，即時彙整所有人的可用時段</p>
       </div>
 
       <div className="pill-tabs" style={{ display:"flex", justifyContent:"center", marginBottom:28 }}>
@@ -1028,8 +1028,35 @@ function AdminView({ poll }) {
           <div className="l">人尚未填寫</div>
           {notFilled === 0 && <div style={{ fontSize:".72rem", color:"var(--accent)", marginTop:4 }}>🎉 全員到齊！</div>}
         </div>
-        <div className="stat"><div className="v">{allDates.length}</div><div className="l">個已填寫日期</div></div>
-        <div className="stat"><div className="v">{totalSlots}</div><div className="l">個時段登記</div></div>
+        {(() => {
+          // Calculate total available hours per dancer (sum of slot durations)
+          const hoursByDancer = allDancers.map(n => {
+            const total = Object.values(responses[n]||{}).flat().reduce((sum, slot) => {
+              const [s, e] = slot.split("~");
+              return sum + (toMins(e) - toMins(s));
+            }, 0);
+            return { name: n, mins: total };
+          }).filter(d => d.mins > 0).sort((a,b) => b.mins - a.mins);
+
+          const king = hoursByDancer[0];
+          const busy = hoursByDancer[hoursByDancer.length - 1];
+          const fmtHrs = m => m >= 60 ? `${(m/60).toFixed(1)}h` : `${m}m`;
+
+          return (<>
+            <div className="stat" style={{ borderColor: king ? "rgba(180,255,90,.25)" : "var(--border)" }}>
+              <div style={{ fontSize:".65rem", color:"var(--accent)", letterSpacing:".1em", fontFamily:"'DM Mono',monospace", marginBottom:6 }}>👑 閒閒沒事之王</div>
+              {king
+                ? <><div className="v" style={{ fontSize:"1.4rem" }}>{king.name}</div><div className="l">{fmtHrs(king.mins)} 可用時數</div></>
+                : <div className="l" style={{ marginTop:4 }}>尚無資料</div>}
+            </div>
+            <div className="stat" style={{ borderColor: busy ? "rgba(255,90,122,.2)" : "var(--border)" }}>
+              <div style={{ fontSize:".65rem", color:"var(--accent2)", letterSpacing:".1em", fontFamily:"'DM Mono',monospace", marginBottom:6 }}>⚡ 最少時間大忙人</div>
+              {busy && busy !== king
+                ? <><div className="v" style={{ fontSize:"1.4rem", color:"var(--accent2)" }}>{busy.name}</div><div className="l">{fmtHrs(busy.mins)} 可用時數</div></>
+                : <div className="l" style={{ marginTop:4 }}>尚無資料</div>}
+            </div>
+          </>);
+        })()}
       </div>
 
       {loading && <div style={{ textAlign:"center", padding:60 }}><span className="spin"/></div>}
