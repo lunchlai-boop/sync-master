@@ -236,9 +236,25 @@ function HomeView({ onCreated, onJoined }) {
   const [adminPin, setAdminPin] = useState("");
   const [totalMembers, setTotalMembers] = useState("");
   const [dateEnd, setDateEnd] = useState("");
+  const [mode, setMode] = useState("free"); // free | fixed
+  const [candidates, setCandidates] = useState([]); // [{date, start, end}]
+  const [candDate, setCandDate] = useState("");
+  const [candStart, setCandStart] = useState("14:00");
+  const [candEnd, setCandEnd] = useState("18:00");
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState(false);
   const toast = useToast();
+
+  function addCandidate() {
+    if (!candDate) { toast.show("請選擇日期"); return; }
+    if (!candStart || !candEnd) { toast.show("請填入時間"); return; }
+    if (candStart >= candEnd) { toast.show("結束時間需晚於開始時間"); return; }
+    const key = `${candDate}|${candStart}~${candEnd}`;
+    if (candidates.find(c => `${c.date}|${c.start}~${c.end}` === key)) { toast.show("此時段已存在"); return; }
+    setCandidates(prev => [...prev, { date: candDate, start: candStart, end: candEnd }]
+      .sort((a,b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.start.localeCompare(b.start)));
+  }
+  function removeCandidate(i) { setCandidates(prev => prev.filter((_,idx)=>idx!==i)); }
 
   function handlePinInput(e) {
     const val = e.target.value.replace(/\D/g, "").slice(0, 6);
@@ -250,12 +266,15 @@ function HomeView({ onCreated, onJoined }) {
     if (adminPin.length !== 6) { toast.show("請設定 6 位數字的後台密碼"); return; }
     const tm = parseInt(totalMembers);
     if (!totalMembers || isNaN(tm) || tm < 1 || tm > 999) { toast.show("請填寫有效的統計總人數（1–999）"); return; }
-    if (!dateEnd) { toast.show("請設定統計截止日期"); return; }
-    if (dateEnd < toDateStr(new Date())) { toast.show("截止日期不能早於今天"); return; }
+    if (mode === "free") {
+      if (!dateEnd) { toast.show("請設定統計截止日期"); return; }
+      if (dateEnd < toDateStr(new Date())) { toast.show("截止日期不能早於今天"); return; }
+    }
     setLoading(true);
     const roomId = genId(8);
     const adminToken = adminPin;
-    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, dateStart: toDateStr(new Date()), dateEnd, createdAt: Date.now() };
+    if (mode === "fixed" && candidates.length === 0) { setLoading(false); toast.show("請至少新增一個候選時段"); return; }
+    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, dateStart: toDateStr(new Date()), dateEnd: mode==="free"?dateEnd:"", mode, candidates: mode==="fixed"?candidates:[], createdAt: Date.now() };
     await savePoll(poll);
     await saveResponses(roomId, {});
     setLoading(false);
@@ -292,30 +311,72 @@ function HomeView({ onCreated, onJoined }) {
             <input className="inp" placeholder="你的名字（發起人）" value={creator} onChange={e=>setCreator(e.target.value)} maxLength={20} />
             <div>
               <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:6 }}>👥 統計總人數（含你自己）</div>
-              <input
-                className="inp"
-                placeholder="例：12"
-                value={totalMembers}
+              <input className="inp" placeholder="例：12" value={totalMembers}
                 onChange={e=>setTotalMembers(e.target.value.replace(/\D/g,"").slice(0,3))}
-                inputMode="numeric"
-                maxLength={3}
-                style={{ fontFamily:"'DM Mono',monospace", fontSize:"1.1rem", textAlign:"center", letterSpacing:".1em" }}
-              />
+                inputMode="numeric" maxLength={3}
+                style={{ fontFamily:"'DM Mono',monospace", fontSize:"1.1rem", textAlign:"center", letterSpacing:".1em" }} />
             </div>
+
+            {/* MODE TOGGLE */}
             <div>
-              <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:6 }}>📅 統計區間（截止日期）</div>
-              <input
-                type="date"
-                className="inp"
-                value={dateEnd}
-                min={toDateStr(new Date())}
-                onChange={e=>setDateEnd(e.target.value)}
-                style={{ fontFamily:"'DM Mono',monospace", fontSize:".95rem", colorScheme:"dark" }}
-              />
-              <div style={{ fontSize:".72rem", color:"var(--muted)", marginTop:5 }}>
-                從今天起，成員只能選擇此日期以內的日期填寫
+              <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:8 }}>📋 統計模式</div>
+              <div style={{ display:"flex", gap:8 }}>
+                {[["free","🗓 自由填寫時段"],["fixed","📌 指定候選時段"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>setMode(val)} style={{
+                    flex:1, padding:"10px 8px", borderRadius:8, cursor:"pointer",
+                    fontFamily:"'Noto Sans TC'", fontSize:".85rem", transition:".15s",
+                    background: mode===val ? "rgba(180,255,90,.15)" : "var(--s2)",
+                    border: mode===val ? "1px solid var(--accent)" : "1px solid var(--border)",
+                    color: mode===val ? "var(--accent)" : "var(--muted)",
+                    fontWeight: mode===val ? 700 : 400
+                  }}>{label}</button>
+                ))}
+              </div>
+              <div style={{ fontSize:".72rem", color:"var(--muted)", marginTop:6 }}>
+                {mode==="free" ? "成員自行選日期、填可以的時段區間" : "發起人先設定候選日期與範圍，成員在範圍內填自己可以的時段"}
               </div>
             </div>
+
+            {/* FREE MODE: date range */}
+            {mode === "free" && (
+              <div>
+                <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:6 }}>📅 統計截止日期</div>
+                <input type="date" className="inp" value={dateEnd} min={toDateStr(new Date())}
+                  onChange={e=>setDateEnd(e.target.value)}
+                  style={{ fontFamily:"'DM Mono',monospace", fontSize:".95rem", colorScheme:"dark" }} />
+                <div style={{ fontSize:".72rem", color:"var(--muted)", marginTop:5 }}>成員只能填此日期以內的日期</div>
+              </div>
+            )}
+
+            {/* FIXED MODE: candidate slots */}
+            {mode === "fixed" && (
+              <div>
+                <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:8 }}>📌 新增候選時段</div>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:8 }}>
+                  <input type="date" className="inp" value={candDate} min={toDateStr(new Date())}
+                    onChange={e=>setCandDate(e.target.value)}
+                    style={{ flex:"1 1 130px", fontFamily:"'DM Mono',monospace", fontSize:".85rem", colorScheme:"dark" }} />
+                  <input type="time" className="inp inp-sm" value={candStart} onChange={e=>setCandStart(e.target.value)} />
+                  <span style={{ color:"var(--muted)", fontSize:".8rem" }}>～</span>
+                  <input type="time" className="inp inp-sm" value={candEnd} onChange={e=>setCandEnd(e.target.value)} />
+                  <button className="btn btn-outline btn-sm" onClick={addCandidate}>＋</button>
+                </div>
+                {candidates.length === 0
+                  ? <div style={{ fontSize:".78rem", color:"var(--muted)", padding:"10px 0" }}>尚未新增候選時段</div>
+                  : <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                      {candidates.map((c,i) => (
+                        <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                          background:"var(--s2)", border:"1px solid var(--border)", borderRadius:7, padding:"8px 12px" }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".82rem", color:"var(--accent)" }}>
+                            {c.date} &nbsp; {c.start} → {c.end}
+                          </span>
+                          <button onClick={()=>removeCandidate(i)} style={{ background:"none", border:"none", color:"var(--muted)", cursor:"pointer", fontSize:"1rem" }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                }
+              </div>
+            )}
             <div>
               <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:6 }}>
                 🔐 設定後台密碼（6 位數字）
@@ -418,6 +479,140 @@ function CreatedView({ poll, onEnterAdmin, onFillAsCreator }) {
 
       <Toast msg={toast.msg} on={toast.on} />
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   SUB-VIEW: FIXED MODE FILL
+   Each candidate shows its date + time range.
+   Member fills in their available sub-slots within that range.
+═══════════════════════════════════════════ */
+function FixedFillView({ poll, dancer, responses, setResponses, submitted, setSubmitted, toast }) {
+  const [openIdx, setOpenIdx] = useState(null); // which candidate is expanded
+  const [tStart, setTStart] = useState("14:00");
+  const [tEnd, setTEnd] = useState("18:00");
+
+  async function addSlot(c, cKey) {
+    if (!tStart || !tEnd) { toast.show("請填入時間"); return; }
+    if (tStart >= tEnd) { toast.show("結束時間需晚於開始時間"); return; }
+    if (tStart < c.start || tEnd > c.end) {
+      toast.show(`時段必須在 ${c.start}～${c.end} 範圍內`); return;
+    }
+    const slot = `${tStart}~${tEnd}`;
+    const updated = { ...responses };
+    if (!updated[dancer]) updated[dancer] = {};
+    if (!updated[dancer][cKey]) updated[dancer][cKey] = [];
+    if (updated[dancer][cKey].includes(slot)) { toast.show("此時段已存在"); return; }
+    updated[dancer][cKey] = [...updated[dancer][cKey], slot].sort();
+    setResponses(updated);
+    await saveResponses(poll.roomId, updated);
+    toast.show("✓ 已儲存");
+  }
+
+  async function removeSlot(cKey, slot) {
+    const updated = { ...responses };
+    updated[dancer][cKey] = updated[dancer][cKey].filter(s => s !== slot);
+    if (!updated[dancer][cKey].length) delete updated[dancer][cKey];
+    if (!Object.keys(updated[dancer]||{}).length) delete updated[dancer];
+    setResponses(updated);
+    await saveResponses(poll.roomId, updated);
+  }
+
+  return (
+    <>
+      <div style={{ fontSize:".8rem", color:"var(--muted)", marginBottom:16 }}>
+        在每個候選時段內，填寫你可以參加的時間區間
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {(poll.candidates||[]).map((c, i) => {
+          const cKey = `${c.date}|${c.start}~${c.end}`;
+          const mySlots = (responses[dancer]||{})[cKey] || [];
+          const isOpen = openIdx === i;
+
+          return (
+            <div key={i} style={{
+              background:"var(--surface)", border:`1px solid ${mySlots.length?"rgba(180,255,90,.3)":"var(--border)"}`,
+              borderRadius:12, overflow:"hidden", transition:".2s"
+            }}>
+              {/* Header row */}
+              <div onClick={()=>setOpenIdx(isOpen ? null : i)} style={{
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"14px 16px", cursor:"pointer", gap:12
+              }}>
+                <div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:".78rem", color:"var(--accent3)", marginBottom:3 }}>
+                    {formatDateTW(c.date)}
+                  </div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>
+                    {c.start} ～ {c.end}
+                    <span style={{ fontFamily:"'Noto Sans TC'", fontSize:".72rem", color:"var(--muted)", fontWeight:400, marginLeft:8 }}>
+                      （可填範圍）
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  {mySlots.length > 0 && (
+                    <span style={{ fontSize:".75rem", color:"var(--accent)", background:"rgba(180,255,90,.12)",
+                      border:"1px solid rgba(180,255,90,.25)", padding:"2px 10px", borderRadius:100 }}>
+                      已填 {mySlots.length} 段
+                    </span>
+                  )}
+                  <span style={{ color:"var(--muted)", fontSize:"1rem", transform: isOpen?"rotate(90deg)":"none", transition:".2s", display:"inline-block" }}>›</span>
+                </div>
+              </div>
+
+              {/* Expanded: slot input + list */}
+              {isOpen && (
+                <div style={{ padding:"0 16px 16px", borderTop:"1px solid var(--border)" }}>
+                  <div style={{ paddingTop:14, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:12 }}>
+                    <label style={{ fontSize:".78rem", color:"var(--muted)", whiteSpace:"nowrap" }}>我可以</label>
+                    <input type="time" className="inp inp-sm" value={tStart}
+                      min={c.start} max={c.end}
+                      onChange={e=>setTStart(e.target.value)} />
+                    <span style={{ color:"var(--muted)", fontSize:".85rem" }}>～</span>
+                    <input type="time" className="inp inp-sm" value={tEnd}
+                      min={c.start} max={c.end}
+                      onChange={e=>setTEnd(e.target.value)} />
+                    <button className="btn btn-outline btn-sm" onClick={()=>addSlot(c, cKey)}>＋ 新增</button>
+                  </div>
+                  <div style={{ fontSize:".7rem", color:"var(--muted)", marginBottom:10 }}>
+                    範圍限制：{c.start} ～ {c.end}
+                  </div>
+                  <div className="slot-list">
+                    {mySlots.length === 0
+                      ? <div className="empty-box">尚未填入可參加的時段</div>
+                      : mySlots.map(s => (
+                          <div className="slot-item" key={s}>
+                            <span className="slot-time">{s.replace("~"," → ")}</span>
+                            <button className="rm-btn" onClick={()=>removeSlot(cKey, s)}>✕</button>
+                          </div>
+                        ))
+                    }
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Submit */}
+      {!submitted ? (
+        <div style={{ marginTop:28, textAlign:"center" }}>
+          <button className="btn btn-accent" style={{ padding:"14px 40px", fontSize:"1rem" }}
+            onClick={()=>setSubmitted(true)}>✓ 填寫完畢</button>
+          <div style={{ fontSize:".75rem", color:"var(--muted)", marginTop:10 }}>提交後仍可返回修改</div>
+        </div>
+      ) : (
+        <div style={{ marginTop:28, textAlign:"center", background:"rgba(180,255,90,.07)",
+          border:"1px solid rgba(180,255,90,.25)", borderRadius:14, padding:"36px 24px" }}>
+          <div style={{ fontSize:"2.5rem", marginBottom:12 }}>✅</div>
+          <div style={{ fontSize:"1.2rem", fontWeight:900, color:"var(--accent)", marginBottom:8 }}>已提交您的時間</div>
+          <div style={{ fontSize:".9rem", color:"var(--muted)", marginBottom:20 }}>可直接關閉此視窗</div>
+          <button className="btn btn-outline btn-sm" onClick={()=>setSubmitted(false)}>返回修改</button>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -527,23 +722,26 @@ function FillView({ poll }) {
         </div>
       ) : (
         <>
+          {/* Name badge */}
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:24, flexWrap:"wrap" }}>
             <div style={{ background:"var(--s2)", border:"1px solid var(--border)", borderRadius:100, padding:"7px 16px", fontSize:".85rem", display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ color:"var(--muted)" }}>📍</span>
               <strong style={{ color:"var(--accent)" }}>{dancer}</strong>
               <button className="btn-ghost" onClick={()=>{ localStorage.removeItem(STORAGE_KEY); setConfirmed(false); setSelDate(null); }}>更換</button>
             </div>
-            <span style={{ fontSize:".8rem", color:"var(--muted)" }}>
-              點選日期 → 新增可排練時段
-              {poll.dateEnd && (
-                <span style={{ marginLeft:8, color:"var(--accent3)" }}>
-                  （截止 {poll.dateEnd}）
-                </span>
-              )}
-            </span>
+            {poll.mode !== "fixed" && (
+              <span style={{ fontSize:".8rem", color:"var(--muted)" }}>
+                點選日期 → 新增可排練時段
+                {poll.dateEnd && <span style={{ marginLeft:8, color:"var(--accent3)" }}>（截止 {poll.dateEnd}）</span>}
+              </span>
+            )}
           </div>
 
-          {loadingResp ? <div style={{ textAlign:"center", padding:40 }}><span className="spin" /></div> : (
+          {loadingResp ? <div style={{ textAlign:"center", padding:40 }}><span className="spin" /></div> : poll.mode === "fixed" ? (
+            /* ── FIXED MODE: fill slots within each candidate range ── */
+            <FixedFillView poll={poll} dancer={dancer} responses={responses} setResponses={setResponses} submitted={submitted} setSubmitted={setSubmitted} toast={toast} />
+          ) : (
+            /* ── FREE MODE: calendar + slot input ── */
             <>
               <div className="card">
                 <div className="cal-nav">
@@ -848,8 +1046,54 @@ function AdminView({ poll }) {
         </div>
       )}
 
-      {/* ── GLOBAL OVERLAP SECTION ── */}
-      {!loading && allDates.length > 0 && (() => {
+      {/* ── FIXED MODE ADMIN ── */}
+      {!loading && poll.mode === "fixed" && (
+        <div>
+          <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:14 }}>
+            📌 候選時段投票結果
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:32 }}>
+            {(poll.candidates||[]).map((c,i) => {
+              const key = `${c.date}|${c.start}~${c.end}`;
+              const yes = allDancers.filter(n => (responses[n]||{})[key] === "yes");
+              const no  = allDancers.filter(n => (responses[n]||{})[key] === "no");
+              const pending = allDancers.filter(n => !(responses[n]||{})[key]);
+              const pct = totalMembers > 0 ? Math.round(yes.length / totalMembers * 100) : 0;
+              return (
+                <div key={i} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:12, padding:"16px 18px" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".78rem", color:"var(--accent3)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>{formatDateTW(c.date)}</span>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>{c.start} → {c.end}</span>
+                    <span style={{ fontSize:".75rem", color: pct===100?"var(--accent)":"var(--muted)" }}>{yes.length} / {totalMembers} 人可以</span>
+                  </div>
+                  <div style={{ height:3, background:"var(--border)", borderRadius:2, marginBottom:12, overflow:"hidden" }}>
+                    <div style={{ height:"100%", background:"var(--accent)", borderRadius:2, width:`${pct}%`, transition:"width .5s" }}/>
+                  </div>
+                  <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
+                    <div>
+                      <div style={{ fontSize:".65rem", color:"var(--accent)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:5 }}>✓ 可以</div>
+                      <div className="chips">{yes.length ? yes.map(n=><span className="chip ok" key={n}>{n}</span>) : <span style={{ fontSize:".75rem", color:"var(--muted)" }}>—</span>}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:".65rem", color:"var(--accent2)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:5 }}>✗ 不行</div>
+                      <div className="chips">{no.length ? no.map(n=><span className="chip no" key={n}>{n}</span>) : <span style={{ fontSize:".75rem", color:"var(--muted)" }}>—</span>}</div>
+                    </div>
+                    {pending.length > 0 && (
+                      <div>
+                        <div style={{ fontSize:".65rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:5 }}>？ 未回覆</div>
+                        <div className="chips">{pending.map(n=><span key={n} style={{ padding:"3px 11px", borderRadius:100, fontSize:".78rem", background:"var(--s2)", color:"var(--muted)", border:"1px solid var(--border)" }}>{n}</span>)}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── GLOBAL OVERLAP SECTION (free mode only) ── */}
+      {!loading && poll.mode !== "fixed" && allDates.length > 0 && (() => {
         const allOverlaps = allDates.flatMap(date => {
           const dancerSlotsOnDate = {};
           allDancers.forEach(n => {
@@ -860,7 +1104,7 @@ function AdminView({ poll }) {
           return segs.map(seg => ({ ...seg, date }));
         });
         const sortedAll = [...allOverlaps].sort((a,b) =>
-          b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
+          a.date.localeCompare(b.date) || b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
         );
         if (sortedAll.length === 0) return (
           <div style={{ background:"rgba(255,90,122,.05)", border:"1px solid rgba(255,90,122,.18)", borderRadius:10, padding:"14px 18px", marginBottom:24, fontSize:".85rem", color:"var(--accent2)" }}>
@@ -909,8 +1153,8 @@ function AdminView({ poll }) {
         );
       })()}
 
-      {/* ── GANTT PER DATE ── */}
-      {!loading && allDates.map(date => {
+      {/* ── GANTT PER DATE (free mode only) ── */}
+      {!loading && poll.mode !== "fixed" && allDates.map(date => {
         const allSlots = [...new Set(allDancers.flatMap(n=>(responses[n]||{})[date]||[]))].sort();
 
         // Build per-dancer slots for this date
