@@ -1327,6 +1327,163 @@ function AdminView({ poll }) {
   );
 }
 
+/* ═══════════════════════════════════════════
+   VIEW: SUPER ADMIN GATE
+═══════════════════════════════════════════ */
+const SUPER_PIN_KEY = "sync-super-pin";
+
+function SuperAdminGate({ onUnlock }) {
+  const stored = localStorage.getItem(SUPER_PIN_KEY);
+  const isSetup = !stored;
+  const [pin, setPin] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [shake, setShake] = useState(false);
+  const toast = useToast();
+
+  function handleSubmit() {
+    if (isSetup) {
+      if (pin.length < 4) { toast.show("密碼至少 4 位數字"); return; }
+      if (pin !== confirm) { toast.show("兩次密碼不一致"); return; }
+      localStorage.setItem(SUPER_PIN_KEY, pin);
+      onUnlock();
+    } else {
+      if (pin === stored) {
+        onUnlock();
+      } else {
+        setShake(true); setPin("");
+        toast.show("密碼錯誤");
+        setTimeout(() => setShake(false), 500);
+      }
+    }
+  }
+
+  return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", minHeight:"80vh" }}>
+      <div className="card" style={{ maxWidth:360, width:"100%", textAlign:"center" }}>
+        <div style={{ fontSize:"2.5rem", marginBottom:16 }}>👁️</div>
+        <h3 style={{ fontSize:"1.2rem", fontWeight:900, marginBottom:6 }}>
+          {isSetup ? "設定超級管理員密碼" : "超級管理員登入"}
+        </h3>
+        <div style={{ fontSize:".82rem", color:"var(--muted)", marginBottom:20 }}>
+          {isSetup ? "首次登入，請設定你的專屬密碼" : "輸入密碼以查看所有統計房間"}
+        </div>
+        <input className="inp" type="password" placeholder={isSetup ? "設定密碼…" : "輸入密碼…"}
+          value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,""))}
+          inputMode="numeric" style={{ textAlign:"center", letterSpacing:".3em", fontSize:"1.3rem",
+            marginBottom:10, animation: shake?"shake .4s ease":"none" }}
+          onKeyDown={e=>e.key==="Enter"&&(!isSetup?handleSubmit():null)} />
+        {isSetup && (
+          <input className="inp" type="password" placeholder="再次確認密碼…"
+            value={confirm} onChange={e=>setConfirm(e.target.value.replace(/\D/g,""))}
+            inputMode="numeric" style={{ textAlign:"center", letterSpacing:".3em", fontSize:"1.3rem", marginBottom:10 }}
+            onKeyDown={e=>e.key==="Enter"&&handleSubmit()} />
+        )}
+        <button className="btn btn-accent" style={{ width:"100%", marginTop:4 }} onClick={handleSubmit}>
+          {isSetup ? "設定並進入" : "進入總覽"}
+        </button>
+        {!isSetup && (
+          <button onClick={()=>{ localStorage.removeItem(SUPER_PIN_KEY); toast.show("已重設密碼"); }}
+            style={{ background:"none", border:"none", color:"var(--muted)", fontSize:".75rem",
+              cursor:"pointer", marginTop:12, textDecoration:"underline", fontFamily:"'Noto Sans TC'" }}>
+            忘記密碼？重設
+          </button>
+        )}
+        <Toast msg={toast.msg} on={toast.on} />
+      </div>
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}`}</style>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   VIEW: SUPER ADMIN DASHBOARD
+═══════════════════════════════════════════ */
+function SuperAdminView() {
+  const [polls, setPolls] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  const copy = useCopy(toast);
+
+  useEffect(() => {
+    async function fetchAll() {
+      try {
+        const { getDocs, collection, orderBy, query } = await import("firebase/firestore");
+        const q = query(collection(db, "polls"), orderBy("createdAt", "desc"));
+        const snap = await getDocs(q);
+        setPolls(snap.docs.map(d => d.data()));
+      } catch(e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchAll();
+  }, []);
+
+  const base = window.location.href.split("?")[0];
+  const EXPIRE_MS = 20 * 24 * 60 * 60 * 1000;
+
+  return (
+    <div className="wrap">
+      <div style={{ marginBottom:28 }}>
+        <div style={{ fontSize:".7rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:6 }}>👁️ 超級管理員</div>
+        <h2 style={{ fontSize:"1.6rem", fontWeight:900 }}>所有統計房間</h2>
+        <div style={{ fontSize:".82rem", color:"var(--muted)", marginTop:4 }}>共 {polls.length} 個房間</div>
+      </div>
+
+      {loading && <div style={{ textAlign:"center", padding:60 }}><span className="spin"/></div>}
+
+      {!loading && polls.length === 0 && (
+        <div style={{ textAlign:"center", padding:60, color:"var(--muted)" }}>尚無任何統計房間</div>
+      )}
+
+      {!loading && (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {polls.map(p => {
+            const age = Date.now() - (p.createdAt || 0);
+            const daysLeft = Math.max(0, Math.ceil((EXPIRE_MS - age) / (24*60*60*1000)));
+            const isExpired = age > EXPIRE_MS;
+            const memberLink = `${base}?room=${p.roomId}`;
+            const adminLink = `${base}?room=${p.roomId}&admin=1`;
+            return (
+              <div key={p.roomId} style={{
+                background:"var(--surface)", border:`1px solid ${isExpired?"rgba(255,90,122,.25)":"var(--border)"}`,
+                borderRadius:12, padding:"16px 20px",
+                opacity: isExpired ? 0.5 : 1
+              }}>
+                <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:"1rem", marginBottom:4 }}>
+                      {p.title}
+                      {isExpired && <span style={{ marginLeft:8, fontSize:".72rem", color:"var(--accent2)", background:"rgba(255,90,122,.1)", padding:"2px 8px", borderRadius:4 }}>已過期</span>}
+                    </div>
+                    <div style={{ fontSize:".8rem", color:"var(--muted)", display:"flex", gap:16, flexWrap:"wrap" }}>
+                      <span>發起人：<strong style={{ color:"var(--text)" }}>{p.creatorName}</strong></span>
+                      <span style={{ fontFamily:"'DM Mono',monospace", color:"var(--accent3)" }}>{p.roomId}</span>
+                      <span>建立：{new Date(p.createdAt).toLocaleDateString("zh-TW")}</span>
+                      {!isExpired && <span style={{ color: daysLeft <= 3 ? "var(--accent2)" : "var(--muted)" }}>剩 {daysLeft} 天</span>}
+                      <span>總人數：{p.totalMembers}</span>
+                      <span style={{ background:"var(--s2)", padding:"1px 8px", borderRadius:4 }}>{p.mode === "fixed" ? "📌 指定時段" : "🗓 自由填寫"}</span>
+                    </div>
+                  </div>
+                  {!isExpired && (
+                    <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                      <button className="copy-btn" onClick={()=>copy(memberLink, "成員連結已複製！")}>成員連結</button>
+                      <button className="copy-btn" style={{ borderColor:"rgba(180,255,90,.3)", color:"var(--accent)" }}
+                        onClick={()=>copy(adminLink, "後台連結已複製！")}>後台連結</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <Toast msg={toast.msg} on={toast.on} />
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    TOAST COMPONENT
 ───────────────────────────────────────────── */
@@ -1343,9 +1500,10 @@ export default function App() {
   const params = new URLSearchParams(window.location.search);
   const roomId = params.get("room");
   const adminToken = params.get("admin"); // "1" means admin-gate entry
+  const superadminParam = params.get("superadmin"); // "1" means super admin gate
 
-  // view: home | created | fill | admin | admingate | loading | expired
-  const [view, setView] = useState(roomId ? "loading" : "home");
+  // view: home | created | fill | admin | admingate | loading | expired | superadmin | superadmingate
+  const [view, setView] = useState(roomId ? "loading" : superadminParam === "1" ? "superadmingate" : "home");
   const [poll, setPoll] = useState(null);
 
   useEffect(() => {
@@ -1419,6 +1577,25 @@ export default function App() {
       )}
 
       {view === "fill" && poll && <FillView poll={poll} />}
+
+      {view === "superadmingate" && (
+        <>
+          <nav className="nav">
+            <div className="logo">SYNC<span>/</span>MASTER</div>
+          </nav>
+          <SuperAdminGate onUnlock={() => setView("superadmin")} />
+        </>
+      )}
+
+      {view === "superadmin" && (
+        <>
+          <nav className="nav">
+            <div className="logo">SYNC<span>/</span>MASTER</div>
+            <div style={{ fontSize:".75rem", color:"var(--muted)", fontFamily:"'DM Mono',monospace" }}>👁️ 超級管理員</div>
+          </nav>
+          <SuperAdminView />
+        </>
+      )}
 
       {view === "admingate" && poll && (
         <>
