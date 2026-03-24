@@ -425,10 +425,12 @@ function CreatedView({ poll, onEnterAdmin, onFillAsCreator }) {
    VIEW: FILL  – 成員填寫時段
 ═══════════════════════════════════════════ */
 function FillView({ poll }) {
-  const [dancer, setDancer] = useState("");
+  const STORAGE_KEY = `sync-dancer-${poll.roomId}`;
+  const [dancer, setDancer] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
   const [confirmed, setConfirmed] = useState(false);
   const [responses, setResponses] = useState({});
   const [loadingResp, setLoadingResp] = useState(true);
+  const [submitted, setSubmitted] = useState(false);
   const [selDate, setSelDate] = useState(null);
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth());
@@ -441,9 +443,17 @@ function FillView({ poll }) {
     loadResponses(poll.roomId).then(r => { setResponses(r); setLoadingResp(false); });
   }, [poll.roomId]);
 
+  // Auto-confirm if name was remembered
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) { setDancer(saved); setConfirmed(true); }
+  }, []);
+
   async function confirmName() {
     if (!dancer.trim()) { toast.show("請輸入名字"); return; }
-    setDancer(dancer.trim());
+    const name = dancer.trim();
+    setDancer(name);
+    localStorage.setItem(STORAGE_KEY, name);
     setConfirmed(true);
   }
 
@@ -492,11 +502,28 @@ function FillView({ poll }) {
       {!confirmed ? (
         <div className="card" style={{ maxWidth:440 }}>
           <div className="card-title">輸入你的名字開始填寫</div>
-          <div style={{ display:"flex", gap:10 }}>
+          <div style={{ display:"flex", gap:10, marginBottom: Object.keys(responses).length ? 12 : 0 }}>
             <input className="inp" placeholder="你的名字…" value={dancer} onChange={e=>setDancer(e.target.value)}
               maxLength={20} onKeyDown={e=>e.key==="Enter"&&confirmName()} />
             <button className="btn btn-accent btn-sm" onClick={confirmName}>確認</button>
           </div>
+          {!loadingResp && Object.keys(responses).length > 0 && (
+            <div>
+              <div style={{ fontSize:".72rem", color:"var(--muted)", marginBottom:8 }}>或選擇已填寫過的名字：</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {Object.keys(responses).map(n => (
+                  <button key={n} onClick={() => { setDancer(n); localStorage.setItem(STORAGE_KEY, n); setConfirmed(true); }}
+                    style={{ padding:"6px 14px", background:"var(--s2)", border:"1px solid var(--border2)",
+                      borderRadius:100, color:"var(--text)", fontFamily:"'Noto Sans TC'",
+                      fontSize:".82rem", cursor:"pointer", transition:".15s" }}
+                    onMouseOver={e=>e.target.style.borderColor="var(--accent)"}
+                    onMouseOut={e=>e.target.style.borderColor="var(--border2)"}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -504,7 +531,7 @@ function FillView({ poll }) {
             <div style={{ background:"var(--s2)", border:"1px solid var(--border)", borderRadius:100, padding:"7px 16px", fontSize:".85rem", display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ color:"var(--muted)" }}>📍</span>
               <strong style={{ color:"var(--accent)" }}>{dancer}</strong>
-              <button className="btn-ghost" onClick={()=>{ setConfirmed(false); setSelDate(null); }}>更換</button>
+              <button className="btn-ghost" onClick={()=>{ localStorage.removeItem(STORAGE_KEY); setConfirmed(false); setSelDate(null); }}>更換</button>
             </div>
             <span style={{ fontSize:".8rem", color:"var(--muted)" }}>
               點選日期 → 新增可排練時段
@@ -568,6 +595,36 @@ function FillView({ poll }) {
                         ))
                     }
                   </div>
+                </div>
+              )}
+
+              {/* ── SUBMIT BUTTON ── */}
+              {!submitted ? (
+                <div style={{ marginTop:28, textAlign:"center" }}>
+                  <button className="btn btn-accent" style={{ padding:"14px 40px", fontSize:"1rem" }}
+                    onClick={() => setSubmitted(true)}>
+                    ✓ 填寫完畢
+                  </button>
+                  <div style={{ fontSize:".75rem", color:"var(--muted)", marginTop:10 }}>
+                    提交後仍可返回修改
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  marginTop:28, textAlign:"center",
+                  background:"rgba(180,255,90,.07)", border:"1px solid rgba(180,255,90,.25)",
+                  borderRadius:14, padding:"36px 24px"
+                }}>
+                  <div style={{ fontSize:"2.5rem", marginBottom:12 }}>✅</div>
+                  <div style={{ fontSize:"1.2rem", fontWeight:900, color:"var(--accent)", marginBottom:8 }}>
+                    已提交您的時間
+                  </div>
+                  <div style={{ fontSize:".9rem", color:"var(--muted)", marginBottom:20 }}>
+                    可直接關閉此視窗
+                  </div>
+                  <button className="btn btn-outline btn-sm" onClick={() => setSubmitted(false)}>
+                    返回修改
+                  </button>
                 </div>
               )}
             </>
@@ -791,6 +848,68 @@ function AdminView({ poll }) {
         </div>
       )}
 
+      {/* ── GLOBAL OVERLAP SECTION ── */}
+      {!loading && allDates.length > 0 && (() => {
+        const allOverlaps = allDates.flatMap(date => {
+          const dancerSlotsOnDate = {};
+          allDancers.forEach(n => {
+            const s = (responses[n]||{})[date];
+            if (s && s.length) dancerSlotsOnDate[n] = s;
+          });
+          const segs = calcOverlaps(dancerSlotsOnDate, 2);
+          return segs.map(seg => ({ ...seg, date }));
+        });
+        const sortedAll = [...allOverlaps].sort((a,b) =>
+          b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
+        );
+        if (sortedAll.length === 0) return (
+          <div style={{ background:"rgba(255,90,122,.05)", border:"1px solid rgba(255,90,122,.18)", borderRadius:10, padding:"14px 18px", marginBottom:24, fontSize:".85rem", color:"var(--accent2)" }}>
+            ⚠️ 目前尚無任何重疊時段
+          </div>
+        );
+        return (
+          <div style={{ background:"rgba(180,255,90,.05)", border:"1px solid rgba(180,255,90,.2)", borderRadius:12, padding:"18px 20px", marginBottom:28 }}>
+            <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:14 }}>
+              ✦ 重疊時段分析（全部日期）
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {sortedAll.map((seg, i) => {
+                const duration = seg.end - seg.start;
+                const pct = totalMembers > 0 ? Math.round(seg.dancers.length / totalMembers * 100) : 0;
+                const absentees = allDancers.filter(n => !seg.dancers.includes(n));
+                return (
+                  <div key={i} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8, padding:"12px 14px" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
+                      <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".75rem", color:"var(--accent3)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>
+                        {formatDateTW(seg.date)}
+                      </span>
+                      <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>
+                        {fromMins(seg.start)} → {fromMins(seg.end)}
+                      </span>
+                      <span style={{ fontSize:".75rem", color:"var(--muted)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>
+                        {Math.floor(duration/60) > 0 ? `${Math.floor(duration/60)}小時` : ""}{duration%60 > 0 ? `${duration%60}分` : ""}
+                      </span>
+                      <span style={{ fontSize:".75rem", color: pct===100 ? "var(--accent)" : "var(--muted)" }}>
+                        {seg.dancers.length} / {totalMembers} 人
+                      </span>
+                    </div>
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom: absentees.length ? 6 : 0 }}>
+                      {seg.dancers.map(n => <span className="chip ok" key={n}>✓ {n}</span>)}
+                    </div>
+                    {absentees.length > 0 && (
+                      <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:4 }}>
+                        {absentees.map(n => <span className="chip no" key={n}>{n}</span>)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── GANTT PER DATE ── */}
       {!loading && allDates.map(date => {
         const allSlots = [...new Set(allDancers.flatMap(n=>(responses[n]||{})[date]||[]))].sort();
 
@@ -801,64 +920,12 @@ function AdminView({ poll }) {
           if (s && s.length) dancerSlotsOnDate[n] = s;
         });
 
-        // Compute overlapping segments (at least 2 people)
-        const overlaps = calcOverlaps(dancerSlotsOnDate, 2);
-        // Sort by number of dancers desc, then duration desc
-        const sortedOverlaps = [...overlaps].sort((a,b) =>
-          b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
-        );
-
         return (
           <div className="date-group" key={date}>
             <div className="dg-head">
               <span className="dg-date">📅 {formatDateTW(date)}</span>
               <span className="badge">{allSlots.length} 個時段</span>
             </div>
-
-            {/* ── OVERLAP SECTION ── */}
-            {sortedOverlaps.length > 0 && (
-              <div style={{ background:"rgba(180,255,90,.05)", border:"1px solid rgba(180,255,90,.2)", borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
-                <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:12 }}>
-                  ✦ 重疊時段分析
-                </div>
-                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                  {sortedOverlaps.map((seg, i) => {
-                    const duration = seg.end - seg.start;
-                    const pct = totalMembers > 0 ? Math.round(seg.dancers.length / totalMembers * 100) : 0;
-                    const absentees = allDancers.filter(n => !seg.dancers.includes(n));
-                    return (
-                      <div key={i} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8, padding:"12px 14px" }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
-                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>
-                            {fromMins(seg.start)} → {fromMins(seg.end)}
-                          </span>
-                          <span style={{ fontSize:".75rem", color:"var(--muted)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>
-                            {Math.floor(duration/60) > 0 ? `${Math.floor(duration/60)}小時` : ""}{duration%60 > 0 ? `${duration%60}分` : ""}
-                          </span>
-                          <span style={{ fontSize:".75rem", color: pct===100 ? "var(--accent)" : "var(--muted)" }}>
-                            {seg.dancers.length} / {totalMembers} 人可參加
-                          </span>
-                        </div>
-                        <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom: absentees.length ? 6 : 0 }}>
-                          {seg.dancers.map(n => <span className="chip ok" key={n}>✓ {n}</span>)}
-                        </div>
-                        {absentees.length > 0 && (
-                          <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:4 }}>
-                            {absentees.map(n => <span className="chip no" key={n}>{n}</span>)}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {overlaps.length === 0 && Object.keys(dancerSlotsOnDate).length > 1 && (
-              <div style={{ background:"rgba(255,90,122,.05)", border:"1px solid rgba(255,90,122,.2)", borderRadius:8, padding:"12px 16px", marginBottom:12, fontSize:".85rem", color:"var(--accent2)" }}>
-                ⚠️ 此日期無任何重疊時段
-              </div>
-            )}
 
             {/* ── GANTT CHART ── */}
             {(() => {
