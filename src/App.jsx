@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 
 /* ─────────────────────────────────────────────
    FIREBASE INIT
@@ -69,8 +69,15 @@ async function loadResponses(roomId) {
     return snap.exists() ? snap.data() : {};
   } catch { return {}; }
 }
-async function saveResponses(roomId, responses) {
-  await setDoc(doc(db, "responses", roomId), responses);
+async function saveResponses(roomId, responses, dancerName) {
+  if (dancerName) {
+    // Merge: only update this dancer's key, don't overwrite others
+    const update = { [dancerName]: responses[dancerName] !== undefined ? responses[dancerName] : {} };
+    await setDoc(doc(db, "responses", roomId), update, { merge: true });
+  } else {
+    // Initial creation (empty doc)
+    await setDoc(doc(db, "responses", roomId), responses);
+  }
 }
 
 /* ─────────────────────────────────────────────
@@ -519,7 +526,7 @@ function FixedFillView({ poll, dancer, responses, setResponses, submitted, setSu
     if (updated[dancer][cKey].includes(slot)) { toast.show("此時段已存在"); return; }
     updated[dancer][cKey] = [...updated[dancer][cKey], slot].sort();
     setResponses(updated);
-    await saveResponses(poll.roomId, updated);
+    await saveResponses(poll.roomId, updated, dancer);
     toast.show("✓ 已儲存");
   }
 
@@ -529,7 +536,7 @@ function FixedFillView({ poll, dancer, responses, setResponses, submitted, setSu
     if (!updated[dancer][cKey].length) delete updated[dancer][cKey];
     if (!Object.keys(updated[dancer]||{}).length) delete updated[dancer];
     setResponses(updated);
-    await saveResponses(poll.roomId, updated);
+    await saveResponses(poll.roomId, updated, dancer);
   }
 
   return (
@@ -676,7 +683,7 @@ function FillView({ poll }) {
     if (updated[dancer][selDate].includes(slot)) { toast.show("此時段已存在"); return; }
     updated[dancer][selDate] = [...updated[dancer][selDate], slot].sort();
     setResponses(updated);
-    await saveResponses(poll.roomId, updated);
+    await saveResponses(poll.roomId, updated, dancer);
     toast.show("✓ 已儲存");
   }
 
@@ -686,7 +693,7 @@ function FillView({ poll }) {
     if (!updated[dancer][selDate].length) delete updated[dancer][selDate];
     if (!Object.keys(updated[dancer]||{}).length) delete updated[dancer];
     setResponses(updated);
-    await saveResponses(poll.roomId, updated);
+    await saveResponses(poll.roomId, updated, dancer);
   }
 
   function changeMonth(dir) {
