@@ -235,6 +235,7 @@ function HomeView({ onCreated, onJoined }) {
   const [creator, setCreator] = useState("");
   const [adminPin, setAdminPin] = useState("");
   const [totalMembers, setTotalMembers] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState(false);
   const toast = useToast();
@@ -249,10 +250,12 @@ function HomeView({ onCreated, onJoined }) {
     if (adminPin.length !== 6) { toast.show("請設定 6 位數字的後台密碼"); return; }
     const tm = parseInt(totalMembers);
     if (!totalMembers || isNaN(tm) || tm < 1 || tm > 999) { toast.show("請填寫有效的統計總人數（1–999）"); return; }
+    if (!dateEnd) { toast.show("請設定統計截止日期"); return; }
+    if (dateEnd < toDateStr(new Date())) { toast.show("截止日期不能早於今天"); return; }
     setLoading(true);
     const roomId = genId(8);
     const adminToken = adminPin;
-    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, createdAt: Date.now() };
+    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, dateStart: toDateStr(new Date()), dateEnd, createdAt: Date.now() };
     await savePoll(poll);
     await saveResponses(roomId, {});
     setLoading(false);
@@ -298,6 +301,20 @@ function HomeView({ onCreated, onJoined }) {
                 maxLength={3}
                 style={{ fontFamily:"'DM Mono',monospace", fontSize:"1.1rem", textAlign:"center", letterSpacing:".1em" }}
               />
+            </div>
+            <div>
+              <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:6 }}>📅 統計區間（截止日期）</div>
+              <input
+                type="date"
+                className="inp"
+                value={dateEnd}
+                min={toDateStr(new Date())}
+                onChange={e=>setDateEnd(e.target.value)}
+                style={{ fontFamily:"'DM Mono',monospace", fontSize:".95rem", colorScheme:"dark" }}
+              />
+              <div style={{ fontSize:".72rem", color:"var(--muted)", marginTop:5 }}>
+                從今天起，成員只能選擇此日期以內的日期填寫
+              </div>
             </div>
             <div>
               <div style={{ fontSize:".78rem", color:"var(--muted)", marginBottom:6 }}>
@@ -489,7 +506,14 @@ function FillView({ poll }) {
               <strong style={{ color:"var(--accent)" }}>{dancer}</strong>
               <button className="btn-ghost" onClick={()=>{ setConfirmed(false); setSelDate(null); }}>更換</button>
             </div>
-            <span style={{ fontSize:".8rem", color:"var(--muted)" }}>點選日期 → 新增可排練時段</span>
+            <span style={{ fontSize:".8rem", color:"var(--muted)" }}>
+              點選日期 → 新增可排練時段
+              {poll.dateEnd && (
+                <span style={{ marginLeft:8, color:"var(--accent3)" }}>
+                  （截止 {poll.dateEnd}）
+                </span>
+              )}
+            </span>
           </div>
 
           {loadingResp ? <div style={{ textAlign:"center", padding:40 }}><span className="spin" /></div> : (
@@ -508,11 +532,13 @@ function FillView({ poll }) {
                   {Array(daysInMonth).fill(0).map((_,i)=>{
                     const d = i+1;
                     const ds = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-                    const isPast = ds < todayStr;
+                    const pollStart = poll.dateStart || todayStr;
+                    const pollEnd = poll.dateEnd || "9999-12-31";
+                    const isOutOfRange = ds < pollStart || ds > pollEnd;
                     const hasSlots = (responses[dancer]||{})[ds]?.length > 0;
                     return (
-                      <div key={ds} className={`day${isPast?" past":""}${ds===todayStr?" today":""}${ds===selDate?" sel":""}${hasSlots?" has":""}`}
-                        onClick={()=>!isPast && setSelDate(ds)}>
+                      <div key={ds} className={`day${isOutOfRange?" past":""}${ds===todayStr?" today":""}${ds===selDate?" sel":""}${hasSlots?" has":""}`}
+                        onClick={()=>!isOutOfRange && setSelDate(ds)}>
                         <span className="dn">{d}</span>
                         {hasSlots && <div className="dot"/>}
                       </div>
@@ -617,6 +643,60 @@ function AdminPinGate({ poll, onUnlock }) {
   );
 }
 
+/* ─────────────────────────────────────────────
+   OVERLAP CALCULATION
+   Input:  array of "HH:MM~HH:MM" strings per dancer
+   Output: array of { start, end, dancers[] } merged overlap segments
+───────────────────────────────────────────── */
+function toMins(t) {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+function fromMins(m) {
+  return `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
+}
+
+function calcOverlaps(dancerSlots, minPeople = 1) {
+  // Build events: [{time, type: +1/-1, dancer}]
+  const events = [];
+  Object.entries(dancerSlots).forEach(([dancer, slots]) => {
+    (slots || []).forEach(slot => {
+      const [s, e] = slot.split("~");
+      events.push({ t: toMins(s), d: 1, dancer });
+      events.push({ t: toMins(e), d: -1, dancer });
+    });
+  });
+  events.sort((a, b) => a.t - b.t || a.d - b.d);
+
+  // Sweep line
+  const segments = [];
+  let active = new Set();
+  let prevT = null;
+
+  events.forEach(ev => {
+    if (prevT !== null && active.size >= minPeople && ev.t > prevT) {
+      segments.push({ start: prevT, end: ev.t, dancers: [...active] });
+    }
+    if (ev.d === 1) active.add(ev.dancer);
+    else active.delete(ev.dancer);
+    prevT = ev.t;
+  });
+
+  // Merge adjacent segments with same dancer set
+  const merged = [];
+  segments.forEach(seg => {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.end === seg.start &&
+        JSON.stringify([...prev.dancers].sort()) === JSON.stringify([...seg.dancers].sort())) {
+      prev.end = seg.end;
+    } else {
+      merged.push({ ...seg, dancers: [...seg.dancers] });
+    }
+  });
+
+  return merged;
+}
+
 /* ═══════════════════════════════════════════
    VIEW: ADMIN  – 後台統計
 ═══════════════════════════════════════════ */
@@ -662,6 +742,11 @@ function AdminView({ poll }) {
           <h2 style={{ fontSize:"1.6rem", fontWeight:900 }}>{poll.title}</h2>
           <div style={{ fontSize:".82rem", color:"var(--muted)", marginTop:4 }}>
             房間碼 <code style={{ fontFamily:"'DM Mono',monospace", color:"var(--accent3)", background:"var(--s2)", padding:"1px 8px", borderRadius:4 }}>{poll.roomId}</code>
+            {poll.dateEnd && (
+              <span style={{ marginLeft:12 }}>
+                📅 {poll.dateStart} ～ {poll.dateEnd}
+              </span>
+            )}
           </div>
         </div>
         <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
@@ -708,11 +793,76 @@ function AdminView({ poll }) {
 
       {!loading && allDates.map(date => {
         const allSlots = [...new Set(allDancers.flatMap(n=>(responses[n]||{})[date]||[]))].sort();
+
+        // Build per-dancer slots for this date
+        const dancerSlotsOnDate = {};
+        allDancers.forEach(n => {
+          const s = (responses[n]||{})[date];
+          if (s && s.length) dancerSlotsOnDate[n] = s;
+        });
+
+        // Compute overlapping segments (at least 2 people)
+        const overlaps = calcOverlaps(dancerSlotsOnDate, 2);
+        // Sort by number of dancers desc, then duration desc
+        const sortedOverlaps = [...overlaps].sort((a,b) =>
+          b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
+        );
+
         return (
           <div className="date-group" key={date}>
             <div className="dg-head">
               <span className="dg-date">📅 {formatDateTW(date)}</span>
               <span className="badge">{allSlots.length} 個時段</span>
+            </div>
+
+            {/* ── OVERLAP SECTION ── */}
+            {sortedOverlaps.length > 0 && (
+              <div style={{ background:"rgba(180,255,90,.05)", border:"1px solid rgba(180,255,90,.2)", borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
+                <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:12 }}>
+                  ✦ 重疊時段分析
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {sortedOverlaps.map((seg, i) => {
+                    const duration = seg.end - seg.start;
+                    const pct = totalMembers > 0 ? Math.round(seg.dancers.length / totalMembers * 100) : 0;
+                    const absentees = allDancers.filter(n => !seg.dancers.includes(n));
+                    return (
+                      <div key={i} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8, padding:"12px 14px" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>
+                            {fromMins(seg.start)} → {fromMins(seg.end)}
+                          </span>
+                          <span style={{ fontSize:".75rem", color:"var(--muted)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>
+                            {Math.floor(duration/60) > 0 ? `${Math.floor(duration/60)}小時` : ""}{duration%60 > 0 ? `${duration%60}分` : ""}
+                          </span>
+                          <span style={{ fontSize:".75rem", color: pct===100 ? "var(--accent)" : "var(--muted)" }}>
+                            {seg.dancers.length} / {totalMembers} 人可參加
+                          </span>
+                        </div>
+                        <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom: absentees.length ? 6 : 0 }}>
+                          {seg.dancers.map(n => <span className="chip ok" key={n}>✓ {n}</span>)}
+                        </div>
+                        {absentees.length > 0 && (
+                          <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:4 }}>
+                            {absentees.map(n => <span className="chip no" key={n}>{n}</span>)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {overlaps.length === 0 && Object.keys(dancerSlotsOnDate).length > 1 && (
+              <div style={{ background:"rgba(255,90,122,.05)", border:"1px solid rgba(255,90,122,.2)", borderRadius:8, padding:"12px 16px", marginBottom:12, fontSize:".85rem", color:"var(--accent2)" }}>
+                ⚠️ 此日期無任何重疊時段
+              </div>
+            )}
+
+            {/* ── INDIVIDUAL SLOTS ── */}
+            <div style={{ fontSize:".7rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:8, marginTop:4 }}>
+              個別填寫時段
             </div>
             {allSlots.map(slot => {
               const avail = allDancers.filter(n => ((responses[n]||{})[date]||[]).includes(slot));
