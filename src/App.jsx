@@ -48,16 +48,25 @@ async function loadPoll(roomId) {
   } catch { return null; }
 }
 async function savePoll(poll) {
-  await setDoc(doc(db, "polls", poll.roomId), poll);
+  // Convert expireAt Date to Firestore Timestamp for TTL
+  const data = { ...poll, expireAt: poll.expireAt instanceof Date ? poll.expireAt : new Date(poll.expireAt) };
+  await setDoc(doc(db, "polls", poll.roomId), data);
 }
 async function loadResponses(roomId) {
   try {
     const snap = await getDoc(doc(db, "responses", roomId));
-    return snap.exists() ? snap.data() : {};
+    const data = snap.exists() ? snap.data() : {};
+    // Remove internal expireAt field before returning to app
+    const { expireAt, ...rest } = data;
+    return rest;
   } catch { return {}; }
 }
 async function saveResponses(roomId, responses) {
-  await setDoc(doc(db, "responses", roomId), responses);
+  // Preserve expireAt if it exists, inject if new
+  const existing = responses.expireAt;
+  const data = { ...responses };
+  if (existing) data.expireAt = existing instanceof Date ? existing : new Date(existing);
+  await setDoc(doc(db, "responses", roomId), data);
 }
 
 /* ─────────────────────────────────────────────
@@ -274,9 +283,11 @@ function HomeView({ onCreated, onJoined }) {
     const roomId = genId(8);
     const adminToken = adminPin;
     if (mode === "fixed" && candidates.length === 0) { setLoading(false); toast.show("請至少新增一個候選時段"); return; }
-    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, dateStart: toDateStr(new Date()), dateEnd: mode==="free"?dateEnd:"", mode, candidates: mode==="fixed"?candidates:[], createdAt: Date.now() };
+    const createdAt = Date.now();
+    const expireAt = new Date(createdAt + 20 * 24 * 60 * 60 * 1000); // 20 days later
+    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, dateStart: toDateStr(new Date()), dateEnd: mode==="free"?dateEnd:"", mode, candidates: mode==="fixed"?candidates:[], createdAt, expireAt };
     await savePoll(poll);
-    await saveResponses(roomId, {});
+    await saveResponses(roomId, { expireAt });
     setLoading(false);
     onCreated(poll);
   }
@@ -731,7 +742,7 @@ function FillView({ poll }) {
             </div>
             {poll.mode !== "fixed" && (
               <span style={{ fontSize:".8rem", color:"var(--muted)" }}>
-                點選日期 → 新增可排練時段
+                點選日期 → 新增可出席時段
                 {poll.dateEnd && <span style={{ marginLeft:8, color:"var(--accent3)" }}>（截止 {poll.dateEnd}）</span>}
               </span>
             )}
@@ -774,7 +785,7 @@ function FillView({ poll }) {
 
               {selDate && (
                 <div className="slot-panel">
-                  <h4>📍 <span>{formatDateTW(selDate)}</span> — 可排練時段</h4>
+                  <h4>📍 <span>{formatDateTW(selDate)}</span> — 可出席時段</h4>
                   <div className="inp-row" style={{ alignItems:"center" }}>
                     <label style={{ fontSize:".8rem", color:"var(--muted)", whiteSpace:"nowrap" }}>開始</label>
                     <input type="time" className="inp inp-sm" value={tStart} onChange={e=>setTStart(e.target.value)} />
