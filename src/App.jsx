@@ -860,36 +860,112 @@ function AdminView({ poll }) {
               </div>
             )}
 
-            {/* ── INDIVIDUAL SLOTS ── */}
-            <div style={{ fontSize:".7rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:8, marginTop:4 }}>
-              個別填寫時段
-            </div>
-            {allSlots.map(slot => {
-              const avail = allDancers.filter(n => ((responses[n]||{})[date]||[]).includes(slot));
-              const unavail = allDancers.filter(n => !((responses[n]||{})[date]||[]).includes(slot));
-              const pct = totalMembers > 0 ? Math.round(avail.length/totalMembers*100) : 0;
+            {/* ── GANTT CHART ── */}
+            {(() => {
+              // Compute time axis range from all slots this day
+              const allMins = allSlots.flatMap(s => {
+                const [a, b] = s.split("~");
+                return [toMins(a), toMins(b)];
+              });
+              const axisMin = Math.min(...allMins);
+              const axisMax = Math.max(...allMins);
+              const axisDur = axisMax - axisMin || 60;
+
+              // Generate axis tick labels (every hour, or half-hour if tight)
+              const tickInterval = axisDur <= 120 ? 30 : 60;
+              const firstTick = Math.ceil(axisMin / tickInterval) * tickInterval;
+              const ticks = [];
+              for (let t = firstTick; t <= axisMax; t += tickInterval) ticks.push(t);
+
+              const NAME_W = 72;
+              const BAR_H = 20;
+              const ROW_GAP = 8;
+
               return (
-                <div className="slot-row" key={slot}>
-                  <div className="tc">{slot.replace("~","\n→ ")}</div>
-                  <div>
-                    <div className="col-head">可以參加</div>
-                    <div className="count-pill"><span className="n">{avail.length}</span> / {totalMembers} 人</div>
-                    <div className="bar"><div className="bar-fill" style={{ width:pct+"%" }}/></div>
-                    <div className="chips">
-                      {avail.length ? avail.map(n=><span className="chip ok" key={n}>✓ {n}</span>)
-                        : <span style={{ fontSize:".78rem", color:"var(--muted)" }}>無人可參加</span>}
-                    </div>
+                <div style={{ marginTop:8 }}>
+                  <div style={{ fontSize:".7rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:10 }}>
+                    個別填寫時段
                   </div>
-                  <div>
-                    <div className="col-head">無法參加</div>
-                    <div className="chips">
-                      {unavail.length ? unavail.map(n=><span className="chip no" key={n}>{n}</span>)
-                        : <span style={{ fontSize:".78rem", color:"var(--muted)" }}>所有人皆可 🎉</span>}
+                  <div style={{ background:"var(--s2)", border:"1px solid var(--border)", borderRadius:10, padding:"14px 16px", overflowX:"auto" }}>
+                    {/* Axis ticks */}
+                    <div style={{ display:"flex", marginLeft:NAME_W, marginBottom:6, position:"relative", height:16 }}>
+                      {ticks.map(t => (
+                        <div key={t} style={{
+                          position:"absolute",
+                          left: `${((t - axisMin) / axisDur) * 100}%`,
+                          transform:"translateX(-50%)",
+                          fontSize:".62rem", color:"var(--muted)",
+                          fontFamily:"'DM Mono',monospace",
+                          whiteSpace:"nowrap"
+                        }}>{fromMins(t)}</div>
+                      ))}
                     </div>
+                    {/* Grid lines + rows */}
+                    <div style={{ position:"relative" }}>
+                      {/* Vertical grid lines */}
+                      {ticks.map(t => (
+                        <div key={t} style={{
+                          position:"absolute",
+                          left: `calc(${NAME_W}px + ${((t - axisMin) / axisDur) * 100}% - ${NAME_W * ((t - axisMin) / axisDur)}px)`,
+                          top:0, bottom:0,
+                          width:1, background:"var(--border)", opacity:.5,
+                          pointerEvents:"none"
+                        }}/>
+                      ))}
+                      {allDancers.map((dancer, ri) => {
+                        const slots = (dancerSlotsOnDate[dancer] || []);
+                        return (
+                          <div key={dancer} style={{ display:"flex", alignItems:"center", marginBottom: ri < allDancers.length-1 ? ROW_GAP : 0 }}>
+                            {/* Name */}
+                            <div style={{
+                              width:NAME_W, minWidth:NAME_W, fontSize:".75rem",
+                              color: slots.length ? "var(--text)" : "var(--muted)",
+                              overflow:"hidden", textOverflow:"ellipsis",
+                              whiteSpace:"nowrap", paddingRight:8,
+                              fontWeight: slots.length ? 600 : 400
+                            }}>{dancer}</div>
+                            {/* Bar track */}
+                            <div style={{ flex:1, position:"relative", height:BAR_H, background:"var(--surface)", borderRadius:4 }}>
+                              {slots.length === 0 && (
+                                <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", paddingLeft:8,
+                                  fontSize:".65rem", color:"var(--border)", fontFamily:"'DM Mono',monospace" }}>
+                                  —
+                                </div>
+                              )}
+                              {slots.map(slot => {
+                                const [sa, se] = slot.split("~").map(toMins);
+                                const left = ((sa - axisMin) / axisDur) * 100;
+                                const width = ((se - sa) / axisDur) * 100;
+                                return (
+                                  <div key={slot} title={slot.replace("~"," → ")} style={{
+                                    position:"absolute",
+                                    left:`${left}%`, width:`${width}%`,
+                                    height:"100%",
+                                    background:"var(--accent)",
+                                    borderRadius:4,
+                                    opacity:.85,
+                                    display:"flex", alignItems:"center", justifyContent:"center",
+                                    overflow:"hidden"
+                                  }}>
+                                    {width > 12 && (
+                                      <span style={{ fontSize:".6rem", color:"#000", fontFamily:"'DM Mono',monospace", fontWeight:700, whiteSpace:"nowrap", padding:"0 4px" }}>
+                                        {slot.replace("~","→")}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Axis bottom border */}
+                    <div style={{ marginLeft:NAME_W, height:1, background:"var(--border)", marginTop:8 }}/>
                   </div>
                 </div>
               );
-            })}
+            })()}
           </div>
         );
       })}
