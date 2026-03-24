@@ -41,32 +41,36 @@ function formatMonthTW(y, m) {
      polls/{roomId}          → { roomId, title, creatorName, adminToken, totalMembers, createdAt }
      responses/{roomId}      → { [dancerName]: { [dateStr]: ["HH:MM~HH:MM",...] } }
 ───────────────────────────────────────────── */
+const EXPIRE_DAYS = 20;
+
 async function loadPoll(roomId) {
   try {
     const snap = await getDoc(doc(db, "polls", roomId));
-    return snap.exists() ? snap.data() : null;
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    // Check expiry: createdAt + 20 days
+    const age = Date.now() - (data.createdAt || 0);
+    if (age > EXPIRE_DAYS * 24 * 60 * 60 * 1000) {
+      // Auto-delete expired room
+      const { deleteDoc } = await import("firebase/firestore");
+      await deleteDoc(doc(db, "polls", roomId)).catch(()=>{});
+      await deleteDoc(doc(db, "responses", roomId)).catch(()=>{});
+      return "expired";
+    }
+    return data;
   } catch { return null; }
 }
 async function savePoll(poll) {
-  // Convert expireAt Date to Firestore Timestamp for TTL
-  const data = { ...poll, expireAt: poll.expireAt instanceof Date ? poll.expireAt : new Date(poll.expireAt) };
-  await setDoc(doc(db, "polls", poll.roomId), data);
+  await setDoc(doc(db, "polls", poll.roomId), poll);
 }
 async function loadResponses(roomId) {
   try {
     const snap = await getDoc(doc(db, "responses", roomId));
-    const data = snap.exists() ? snap.data() : {};
-    // Remove internal expireAt field before returning to app
-    const { expireAt, ...rest } = data;
-    return rest;
+    return snap.exists() ? snap.data() : {};
   } catch { return {}; }
 }
 async function saveResponses(roomId, responses) {
-  // Preserve expireAt if it exists, inject if new
-  const existing = responses.expireAt;
-  const data = { ...responses };
-  if (existing) data.expireAt = existing instanceof Date ? existing : new Date(existing);
-  await setDoc(doc(db, "responses", roomId), data);
+  await setDoc(doc(db, "responses", roomId), responses);
 }
 
 /* ─────────────────────────────────────────────
@@ -284,10 +288,9 @@ function HomeView({ onCreated, onJoined }) {
     const adminToken = adminPin;
     if (mode === "fixed" && candidates.length === 0) { setLoading(false); toast.show("請至少新增一個候選時段"); return; }
     const createdAt = Date.now();
-    const expireAt = new Date(createdAt + 20 * 24 * 60 * 60 * 1000); // 20 days later
-    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, dateStart: toDateStr(new Date()), dateEnd: mode==="free"?dateEnd:"", mode, candidates: mode==="fixed"?candidates:[], createdAt, expireAt };
+    const poll = { roomId, title: title.trim(), creatorName: creator.trim(), adminToken, totalMembers: tm, dateStart: toDateStr(new Date()), dateEnd: mode==="free"?dateEnd:"", mode, candidates: mode==="fixed"?candidates:[], createdAt };
     await savePoll(poll);
-    await saveResponses(roomId, { expireAt });
+    await saveResponses(roomId, {});
     setLoading(false);
     onCreated(poll);
   }
@@ -1341,7 +1344,7 @@ export default function App() {
   const roomId = params.get("room");
   const adminToken = params.get("admin"); // "1" means admin-gate entry
 
-  // view: home | created | fill | admin | admingate | loading
+  // view: home | created | fill | admin | admingate | loading | expired
   const [view, setView] = useState(roomId ? "loading" : "home");
   const [poll, setPoll] = useState(null);
 
@@ -1349,6 +1352,7 @@ export default function App() {
     if (!roomId) return;
     loadPoll(roomId).then(p => {
       if (!p) { setView("notfound"); return; }
+      if (p === "expired") { setView("expired"); return; }
       setPoll(p);
       // ?admin param just routes to pin-gate; actual auth happens there
       if (adminToken === "1") {
@@ -1371,6 +1375,15 @@ export default function App() {
       <h2 style={{ marginBottom:8 }}>找不到此統計</h2>
       <p style={{ marginBottom:24 }}>房間碼不存在或已過期</p>
       <button className="btn btn-accent" onClick={()=>{ window.history.pushState({},"",window.location.pathname); setView("home"); }}>返回首頁</button>
+    </div>
+  );
+
+  if (view === "expired") return (
+    <div style={{ textAlign:"center", padding:"80px 20px", color:"var(--muted)" }}>
+      <div style={{ fontSize:"2.5rem", marginBottom:16 }}>⏰</div>
+      <h2 style={{ marginBottom:8, color:"var(--text)" }}>此統計已過期</h2>
+      <p style={{ marginBottom:24, fontSize:".9rem" }}>統計資料在建立 {EXPIRE_DAYS} 天後自動刪除</p>
+      <button className="btn btn-accent" onClick={()=>{ window.history.pushState({},"",window.location.pathname); setView("home"); }}>發起新統計</button>
     </div>
   );
 
