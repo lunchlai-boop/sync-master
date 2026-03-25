@@ -514,16 +514,18 @@ function CreatedView({ poll, onEnterAdmin, onFillAsCreator }) {
 ═══════════════════════════════════════════ */
 function FixedFillView({ poll, dancer, responses, setResponses, submitted, setSubmitted, toast }) {
   const [openIdx, setOpenIdx] = useState(null); // which candidate is expanded
-  const [tStart, setTStart] = useState("14:00");
-  const [tEnd, setTEnd] = useState("18:00");
+  const [tStart, setTStart] = useState(null);
+  const [tEnd, setTEnd] = useState(null);
 
   async function addSlot(c, cKey) {
-    if (!tStart || !tEnd) { toast.show("請填入時間"); return; }
-    if (tStart >= tEnd) { toast.show("結束時間需晚於開始時間"); return; }
-    if (tStart < c.start || tEnd > c.end) {
+    const s = tStart || c.start;
+    const e = tEnd || c.end;
+    if (!s || !e) { toast.show("請填入時間"); return; }
+    if (s >= e) { toast.show("結束時間需晚於開始時間"); return; }
+    if (s < c.start || e > c.end) {
       toast.show(`時段必須在 ${c.start}～${c.end} 範圍內`); return;
     }
-    const slot = `${tStart}~${tEnd}`;
+    const slot = `${s}~${e}`;
     const updated = { ...responses };
     if (!updated[dancer]) updated[dancer] = {};
     if (!updated[dancer][cKey]) updated[dancer][cKey] = [];
@@ -560,7 +562,10 @@ function FixedFillView({ poll, dancer, responses, setResponses, submitted, setSu
               borderRadius:12, overflow:"hidden", transition:".2s"
             }}>
               {/* Header row */}
-              <div onClick={()=>setOpenIdx(isOpen ? null : i)} style={{
+              <div onClick={()=>{
+                if (isOpen) { setOpenIdx(null); }
+                else { setOpenIdx(i); setTStart(c.start); setTEnd(c.end); }
+              }} style={{
                 display:"flex", alignItems:"center", justifyContent:"space-between",
                 padding:"14px 16px", cursor:"pointer", gap:12
               }}>
@@ -591,13 +596,23 @@ function FixedFillView({ poll, dancer, responses, setResponses, submitted, setSu
                 <div style={{ padding:"0 16px 16px", borderTop:"1px solid var(--border)" }}>
                   <div style={{ paddingTop:14, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:12 }}>
                     <label style={{ fontSize:".78rem", color:"var(--muted)", whiteSpace:"nowrap" }}>我可以</label>
-                    <input type="time" className="inp inp-sm" value={tStart}
+                    <input type="time" className="inp inp-sm"
+                      value={tStart || c.start}
                       min={c.start} max={c.end}
-                      onChange={e=>setTStart(e.target.value)} />
+                      onChange={e=>{
+                        const v = e.target.value;
+                        if (v < c.start || v > c.end) { toast.show(`開始時間須在 ${c.start}～${c.end} 內`); return; }
+                        setTStart(v);
+                      }} />
                     <span style={{ color:"var(--muted)", fontSize:".85rem" }}>～</span>
-                    <input type="time" className="inp inp-sm" value={tEnd}
+                    <input type="time" className="inp inp-sm"
+                      value={tEnd || c.end}
                       min={c.start} max={c.end}
-                      onChange={e=>setTEnd(e.target.value)} />
+                      onChange={e=>{
+                        const v = e.target.value;
+                        if (v < c.start || v > c.end) { toast.show(`結束時間須在 ${c.start}～${c.end} 內`); return; }
+                        setTEnd(v);
+                      }} />
                     <button className="btn btn-outline btn-sm" onClick={()=>addSlot(c, cKey)}>＋ 新增</button>
                   </div>
                   <div style={{ fontSize:".7rem", color:"var(--muted)", marginBottom:10 }}>
@@ -1109,43 +1124,86 @@ function AdminView({ poll }) {
 
       {/* ── FIXED MODE ADMIN ── */}
       {!loading && poll.mode === "fixed" && (
-        <div>
+        <div style={{ marginBottom:32 }}>
           <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:14 }}>
-            📌 候選時段投票結果
+            📌 候選時段分析
           </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:32 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
             {(poll.candidates||[]).map((c,i) => {
-              const key = `${c.date}|${c.start}~${c.end}`;
-              const yes = allDancers.filter(n => (responses[n]||{})[key] === "yes");
-              const no  = allDancers.filter(n => (responses[n]||{})[key] === "no");
-              const pending = allDancers.filter(n => !(responses[n]||{})[key]);
-              const pct = totalMembers > 0 ? Math.round(yes.length / totalMembers * 100) : 0;
+              const cKey = `${c.date}|${c.start}~${c.end}`;
+              // Dancers who filled slots for this candidate
+              const filledDancers = allDancers.filter(n => {
+                const slots = (responses[n]||{})[cKey];
+                return slots && slots.length > 0;
+              });
+              // Dancers who did NOT fill = 不行
+              const absentDancers = allDancers.filter(n => {
+                const slots = (responses[n]||{})[cKey];
+                return !slots || slots.length === 0;
+              });
+              // Build dancerSlots for overlap calc
+              const dancerSlotsForCandidate = {};
+              filledDancers.forEach(n => {
+                dancerSlotsForCandidate[n] = (responses[n]||{})[cKey] || [];
+              });
+              // Compute overlaps within this candidate's range
+              const overlaps = calcOverlaps(dancerSlotsForCandidate, 2)
+                .sort((a,b) => b.dancers.length - a.dancers.length || (b.end-b.start) - (a.end-a.start));
+              const pct = totalMembers > 0 ? Math.round(filledDancers.length / totalMembers * 100) : 0;
+
               return (
                 <div key={i} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:12, padding:"16px 18px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+                  {/* Header */}
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap" }}>
                     <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".78rem", color:"var(--accent3)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>{formatDateTW(c.date)}</span>
                     <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>{c.start} → {c.end}</span>
-                    <span style={{ fontSize:".75rem", color: pct===100?"var(--accent)":"var(--muted)" }}>{yes.length} / {totalMembers} 人可以</span>
+                    <span style={{ fontSize:".75rem", color:"var(--muted)" }}>{filledDancers.length} / {totalMembers} 人已填寫</span>
                   </div>
-                  <div style={{ height:3, background:"var(--border)", borderRadius:2, marginBottom:12, overflow:"hidden" }}>
-                    <div style={{ height:"100%", background:"var(--accent)", borderRadius:2, width:`${pct}%`, transition:"width .5s" }}/>
+                  <div style={{ height:2, background:"var(--border)", borderRadius:1, marginBottom:14, overflow:"hidden" }}>
+                    <div style={{ height:"100%", background:"var(--accent)", borderRadius:1, width:`${pct}%`, transition:"width .5s" }}/>
                   </div>
-                  <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
-                    <div>
-                      <div style={{ fontSize:".65rem", color:"var(--accent)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:5 }}>✓ 可以</div>
-                      <div className="chips">{yes.length ? yes.map(n=><span className="chip ok" key={n}>{n}</span>) : <span style={{ fontSize:".75rem", color:"var(--muted)" }}>—</span>}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize:".65rem", color:"var(--accent2)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:5 }}>✗ 不行</div>
-                      <div className="chips">{no.length ? no.map(n=><span className="chip no" key={n}>{n}</span>) : <span style={{ fontSize:".75rem", color:"var(--muted)" }}>—</span>}</div>
-                    </div>
-                    {pending.length > 0 && (
-                      <div>
-                        <div style={{ fontSize:".65rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:5 }}>？ 未回覆</div>
-                        <div className="chips">{pending.map(n=><span key={n} style={{ padding:"3px 11px", borderRadius:100, fontSize:".78rem", background:"var(--s2)", color:"var(--muted)", border:"1px solid var(--border)" }}>{n}</span>)}</div>
+
+                  {/* Overlap analysis */}
+                  {overlaps.length > 0 ? (
+                    <div style={{ marginBottom:12 }}>
+                      <div style={{ fontSize:".65rem", color:"var(--accent)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:8 }}>✦ 重疊時段</div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        {overlaps.map((seg, si) => {
+                          const dur = seg.end - seg.start;
+                          const segAbsent = allDancers.filter(n => !seg.dancers.includes(n));
+                          return (
+                            <div key={si} style={{ background:"var(--s2)", border:"1px solid var(--border)", borderRadius:8, padding:"10px 12px" }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".9rem", color:"var(--accent)", fontWeight:700 }}>{fromMins(seg.start)} → {fromMins(seg.end)}</span>
+                                <span style={{ fontSize:".72rem", color:"var(--muted)", background:"var(--s3)", padding:"1px 7px", borderRadius:4 }}>
+                                  {Math.floor(dur/60)>0?`${Math.floor(dur/60)}小時`:""}{ dur%60>0?`${dur%60}分`:""}
+                                </span>
+                                <span style={{ fontSize:".72rem", color:"var(--muted)" }}>{seg.dancers.length} / {totalMembers} 人</span>
+                              </div>
+                              <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom: segAbsent.length?5:0 }}>
+                                {seg.dancers.map(n=><span className="chip ok" key={n}>✓ {n}</span>)}
+                              </div>
+                              {segAbsent.length > 0 && (
+                                <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:4 }}>
+                                  {segAbsent.map(n=><span className="chip no" key={n}>{n}</span>)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : filledDancers.length >= 2 ? (
+                    <div style={{ fontSize:".82rem", color:"var(--muted)", marginBottom:10 }}>此時段內無重疊區間</div>
+                  ) : null}
+
+                  {/* 不行 */}
+                  {absentDancers.length > 0 && (
+                    <div>
+                      <div style={{ fontSize:".65rem", color:"var(--accent2)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:6 }}>✗ 不行（未填寫）</div>
+                      <div className="chips">{absentDancers.map(n=><span className="chip no" key={n}>{n}</span>)}</div>
+                    </div>
+                  )}
                 </div>
               );
             })}
