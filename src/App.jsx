@@ -1163,9 +1163,11 @@ function AdminView({ poll }) {
           const segs = calcOverlaps(dancerSlotsOnDate, 2);
           return segs.map(seg => ({ ...seg, date }));
         });
-        const sortedAll = [...allOverlaps].sort((a,b) =>
-          a.date.localeCompare(b.date) || b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
-        );
+        const sortedAll = [...allOverlaps]
+          .filter(seg => seg.dancers.length >= Math.ceil(totalMembers / 2))
+          .sort((a,b) =>
+            a.date.localeCompare(b.date) || b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
+          );
         if (sortedAll.length === 0) return (
           <div style={{ background:"rgba(255,90,122,.05)", border:"1px solid rgba(255,90,122,.18)", borderRadius:10, padding:"14px 18px", marginBottom:24, fontSize:".85rem", color:"var(--accent2)" }}>
             ⚠️ 目前尚無任何重疊時段
