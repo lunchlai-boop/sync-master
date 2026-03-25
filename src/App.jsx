@@ -1447,9 +1447,16 @@ function SuperAdminView() {
   return (
     <div className="wrap">
       <div style={{ marginBottom:28 }}>
-        <div style={{ fontSize:".7rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:6 }}>👁️ 超級管理員</div>
-        <h2 style={{ fontSize:"1.6rem", fontWeight:900 }}>所有統計房間</h2>
-        <div style={{ fontSize:".82rem", color:"var(--muted)", marginTop:4 }}>共 {polls.length} 個房間</div>
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+          <div>
+            <div style={{ fontSize:".7rem", color:"var(--muted)", letterSpacing:".1em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:6 }}>👁️ 超級管理員</div>
+            <h2 style={{ fontSize:"1.6rem", fontWeight:900 }}>所有統計房間</h2>
+            <div style={{ fontSize:".82rem", color:"var(--muted)", marginTop:4 }}>共 {polls.length} 個房間</div>
+          </div>
+          <a href={window.location.pathname} className="btn btn-accent btn-sm" style={{ textDecoration:"none", display:"inline-flex", alignItems:"center", gap:6 }}>
+            ✦ 發起新統計
+          </a>
+        </div>
       </div>
 
       {loading && <div style={{ textAlign:"center", padding:60 }}><span className="spin"/></div>}
