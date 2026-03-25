@@ -991,6 +991,7 @@ function calcOverlaps(dancerSlots, minPeople = 1) {
 function AdminView({ poll }) {
   const [responses, setResponses] = useState({});
   const [loading, setLoading] = useState(true);
+  const [minThreshold, setMinThreshold] = useState(null);
   const toast = useToast();
   const copy = useCopy(toast);
   const base = window.location.href.split("?")[0];
@@ -1163,8 +1164,9 @@ function AdminView({ poll }) {
           const segs = calcOverlaps(dancerSlotsOnDate, 2);
           return segs.map(seg => ({ ...seg, date }));
         });
+        const _threshold = (minThreshold !== null && minThreshold !== undefined) ? minThreshold : Math.ceil(totalDancers / 2);
         const sortedAll = [...allOverlaps]
-          .filter(seg => seg.dancers.length >= Math.ceil(totalDancers / 2))
+          .filter(seg => seg.dancers.length >= _threshold)
           .sort((a,b) =>
             a.date.localeCompare(b.date) || b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
           );
