@@ -1164,17 +1164,12 @@ function AdminView({ poll }) {
           const segs = calcOverlaps(dancerSlotsOnDate, 2);
           return segs.map(seg => ({ ...seg, date }));
         });
-        const _threshold = (minThreshold !== null && minThreshold !== undefined) ? minThreshold : Math.ceil(totalDancers / 2);
+        const _threshold = (minThreshold !== null && minThreshold !== undefined) ? minThreshold : Math.ceil(Math.max(totalDancers, 1) / 2);
         const sortedAll = [...allOverlaps]
           .filter(seg => seg.dancers.length >= _threshold)
           .sort((a,b) =>
             a.date.localeCompare(b.date) || b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
           );
-        if (sortedAll.length === 0) return (
-          <div style={{ background:"rgba(255,90,122,.05)", border:"1px solid rgba(255,90,122,.18)", borderRadius:10, padding:"14px 18px", marginBottom:24, fontSize:".85rem", color:"var(--accent2)" }}>
-            ⚠️ 目前尚無任何重疊時段
-          </div>
-        );
         return (
           <div style={{ background:"rgba(180,255,90,.05)", border:"1px solid rgba(180,255,90,.2)", borderRadius:12, padding:"18px 20px", marginBottom:28 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:14 }}>
@@ -1184,12 +1179,12 @@ function AdminView({ poll }) {
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontSize:".75rem", color:"var(--muted)", whiteSpace:"nowrap" }}>至少</span>
                 <input type="range" min={2} max={Math.max(2, totalDancers)}
-                  value={minThreshold !== null ? minThreshold : Math.ceil(totalDancers / 2)}
+                  value={minThreshold !== null ? minThreshold : Math.ceil(Math.max(totalDancers,1) / 2)}
                   onChange={e => setMinThreshold(Number(e.target.value))}
                   style={{ width:80, accentColor:"var(--accent)", cursor:"pointer" }}
                 />
                 <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".9rem", color:"var(--accent)", minWidth:20, textAlign:"center" }}>
-                  {minThreshold !== null ? minThreshold : Math.ceil(totalDancers / 2)}
+                  {minThreshold !== null ? minThreshold : Math.ceil(Math.max(totalDancers,1) / 2)}
                 </span>
                 <span style={{ fontSize:".75rem", color:"var(--muted)" }}>人</span>
                 {minThreshold !== null && (
@@ -1200,6 +1195,11 @@ function AdminView({ poll }) {
                 )}
               </div>
             </div>
+            {sortedAll.length === 0 && (
+              <div style={{ fontSize:".85rem", color:"var(--accent2)", padding:"12px 0" }}>
+                ⚠️ 目前門檻內無重疊時段，試著調低滑桿
+              </div>
+            )}
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {sortedAll.map((seg, i) => {
                 const duration = seg.end - seg.start;
@@ -1262,9 +1262,11 @@ function AdminView({ poll }) {
                 const [a, b] = s.split("~");
                 return [toMins(a), toMins(b)];
               });
-              const axisMin = Math.min(...allMins);
-              const axisMax = Math.max(...allMins);
-              const axisDur = axisMax - axisMin || 60;
+              // Use 10th/90th percentile to avoid outlier slots blowing up the axis
+              const sorted = [...allMins].sort((a,b)=>a-b);
+              const axisMin = sorted[Math.floor(sorted.length * 0.05)] ?? Math.min(...allMins);
+              const axisMax = sorted[Math.ceil(sorted.length * 0.95) - 1] ?? Math.max(...allMins);
+              const axisDur = Math.max(axisMax - axisMin, 60);
 
               // Generate axis tick labels (every hour, or half-hour if tight)
               const tickInterval = axisDur <= 120 ? 30 : 60;
