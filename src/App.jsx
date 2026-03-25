@@ -1164,7 +1164,7 @@ function AdminView({ poll }) {
           return segs.map(seg => ({ ...seg, date }));
         });
         const sortedAll = [...allOverlaps]
-          .filter(seg => seg.dancers.length >= Math.ceil(totalMembers / 2))
+          .filter(seg => seg.dancers.length >= Math.ceil(totalDancers / 2))
           .sort((a,b) =>
             a.date.localeCompare(b.date) || b.dancers.length - a.dancers.length || (b.end - b.start) - (a.end - a.start)
           );
@@ -1175,8 +1175,28 @@ function AdminView({ poll }) {
         );
         return (
           <div style={{ background:"rgba(180,255,90,.05)", border:"1px solid rgba(180,255,90,.2)", borderRadius:12, padding:"18px 20px", marginBottom:28 }}>
-            <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:14 }}>
-              ✦ 重疊時段分析（全部日期）
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:14 }}>
+              <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace" }}>
+                ✦ 重疊時段分析（全部日期）
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:".75rem", color:"var(--muted)", whiteSpace:"nowrap" }}>至少</span>
+                <input type="range" min={2} max={Math.max(2, totalDancers)}
+                  value={minThreshold !== null ? minThreshold : Math.ceil(totalDancers / 2)}
+                  onChange={e => setMinThreshold(Number(e.target.value))}
+                  style={{ width:80, accentColor:"var(--accent)", cursor:"pointer" }}
+                />
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".9rem", color:"var(--accent)", minWidth:20, textAlign:"center" }}>
+                  {minThreshold !== null ? minThreshold : Math.ceil(totalDancers / 2)}
+                </span>
+                <span style={{ fontSize:".75rem", color:"var(--muted)" }}>人</span>
+                {minThreshold !== null && (
+                  <button onClick={() => setMinThreshold(null)}
+                    style={{ background:"none", border:"none", color:"var(--muted)", fontSize:".72rem", cursor:"pointer", fontFamily:"'Noto Sans TC'", textDecoration:"underline", padding:0 }}>
+                    重設
+                  </button>
+                )}
+              </div>
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {sortedAll.map((seg, i) => {
