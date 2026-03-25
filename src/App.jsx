@@ -1351,30 +1351,20 @@ function AdminView({ poll }) {
 /* ═══════════════════════════════════════════
    VIEW: SUPER ADMIN GATE
 ═══════════════════════════════════════════ */
-const SUPER_PIN_KEY = "sync-super-pin";
+const SUPER_PIN = "25200397";
 
 function SuperAdminGate({ onUnlock }) {
-  const stored = localStorage.getItem(SUPER_PIN_KEY);
-  const isSetup = !stored;
   const [pin, setPin] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [shake, setShake] = useState(false);
   const toast = useToast();
 
   function handleSubmit() {
-    if (isSetup) {
-      if (pin.length < 4) { toast.show("密碼至少 4 位數字"); return; }
-      if (pin !== confirm) { toast.show("兩次密碼不一致"); return; }
-      localStorage.setItem(SUPER_PIN_KEY, pin);
+    if (pin === SUPER_PIN) {
       onUnlock();
     } else {
-      if (pin === stored) {
-        onUnlock();
-      } else {
-        setShake(true); setPin("");
-        toast.show("密碼錯誤");
-        setTimeout(() => setShake(false), 500);
-      }
+      setShake(true); setPin("");
+      toast.show("密碼錯誤");
+      setTimeout(() => setShake(false), 500);
     }
   }
 
@@ -1382,33 +1372,15 @@ function SuperAdminGate({ onUnlock }) {
     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", minHeight:"80vh" }}>
       <div className="card" style={{ maxWidth:360, width:"100%", textAlign:"center" }}>
         <div style={{ fontSize:"2.5rem", marginBottom:16 }}>👁️</div>
-        <h3 style={{ fontSize:"1.2rem", fontWeight:900, marginBottom:6 }}>
-          {isSetup ? "設定超級管理員密碼" : "超級管理員登入"}
-        </h3>
-        <div style={{ fontSize:".82rem", color:"var(--muted)", marginBottom:20 }}>
-          {isSetup ? "首次登入，請設定你的專屬密碼" : "輸入密碼以查看所有統計房間"}
-        </div>
-        <input className="inp" type="password" placeholder={isSetup ? "設定密碼…" : "輸入密碼…"}
+        <h3 style={{ fontSize:"1.2rem", fontWeight:900, marginBottom:6 }}>超級管理員登入</h3>
+        <div style={{ fontSize:".82rem", color:"var(--muted)", marginBottom:20 }}>輸入密碼以查看所有統計房間</div>
+        <input className="inp" type="password" placeholder="輸入密碼…"
           value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,""))}
-          inputMode="numeric" style={{ textAlign:"center", letterSpacing:".3em", fontSize:"1.3rem",
-            marginBottom:10, animation: shake?"shake .4s ease":"none" }}
-          onKeyDown={e=>e.key==="Enter"&&(!isSetup?handleSubmit():null)} />
-        {isSetup && (
-          <input className="inp" type="password" placeholder="再次確認密碼…"
-            value={confirm} onChange={e=>setConfirm(e.target.value.replace(/\D/g,""))}
-            inputMode="numeric" style={{ textAlign:"center", letterSpacing:".3em", fontSize:"1.3rem", marginBottom:10 }}
-            onKeyDown={e=>e.key==="Enter"&&handleSubmit()} />
-        )}
-        <button className="btn btn-accent" style={{ width:"100%", marginTop:4 }} onClick={handleSubmit}>
-          {isSetup ? "設定並進入" : "進入總覽"}
-        </button>
-        {!isSetup && (
-          <button onClick={()=>{ localStorage.removeItem(SUPER_PIN_KEY); toast.show("已重設密碼"); }}
-            style={{ background:"none", border:"none", color:"var(--muted)", fontSize:".75rem",
-              cursor:"pointer", marginTop:12, textDecoration:"underline", fontFamily:"'Noto Sans TC'" }}>
-            忘記密碼？重設
-          </button>
-        )}
+          inputMode="numeric" maxLength={8}
+          style={{ textAlign:"center", letterSpacing:".3em", fontSize:"1.3rem",
+            marginBottom:16, animation: shake?"shake .4s ease":"none" }}
+          onKeyDown={e=>e.key==="Enter"&&handleSubmit()} />
+        <button className="btn btn-accent" style={{ width:"100%" }} onClick={handleSubmit}>進入總覽</button>
         <Toast msg={toast.msg} on={toast.on} />
       </div>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}`}</style>
