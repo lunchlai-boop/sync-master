@@ -1123,93 +1123,7 @@ function AdminView({ poll }) {
       )}
 
       {/* ── FIXED MODE ADMIN ── */}
-      {!loading && poll.mode === "fixed" && (
-        <div style={{ marginBottom:32 }}>
-          <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace", marginBottom:14 }}>
-            📌 候選時段分析
-          </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-            {(poll.candidates||[]).map((c,i) => {
-              const cKey = `${c.date}|${c.start}~${c.end}`;
-              // Dancers who filled slots for this candidate
-              const filledDancers = allDancers.filter(n => {
-                const slots = (responses[n]||{})[cKey];
-                return slots && slots.length > 0;
-              });
-              // Dancers who did NOT fill = 不行
-              const absentDancers = allDancers.filter(n => {
-                const slots = (responses[n]||{})[cKey];
-                return !slots || slots.length === 0;
-              });
-              // Build dancerSlots for overlap calc
-              const dancerSlotsForCandidate = {};
-              filledDancers.forEach(n => {
-                dancerSlotsForCandidate[n] = (responses[n]||{})[cKey] || [];
-              });
-              // Compute overlaps within this candidate's range
-              const overlaps = calcOverlaps(dancerSlotsForCandidate, 2)
-                .sort((a,b) => b.dancers.length - a.dancers.length || (b.end-b.start) - (a.end-a.start));
-              const pct = totalMembers > 0 ? Math.round(filledDancers.length / totalMembers * 100) : 0;
 
-              return (
-                <div key={i} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:12, padding:"16px 18px" }}>
-                  {/* Header */}
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap" }}>
-                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".78rem", color:"var(--accent3)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>{formatDateTW(c.date)}</span>
-                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>{c.start} → {c.end}</span>
-                    <span style={{ fontSize:".75rem", color:"var(--muted)" }}>{filledDancers.length} / {totalMembers} 人已填寫</span>
-                  </div>
-                  <div style={{ height:2, background:"var(--border)", borderRadius:1, marginBottom:14, overflow:"hidden" }}>
-                    <div style={{ height:"100%", background:"var(--accent)", borderRadius:1, width:`${pct}%`, transition:"width .5s" }}/>
-                  </div>
-
-                  {/* Overlap analysis */}
-                  {overlaps.length > 0 ? (
-                    <div style={{ marginBottom:12 }}>
-                      <div style={{ fontSize:".65rem", color:"var(--accent)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:8 }}>✦ 重疊時段</div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                        {overlaps.map((seg, si) => {
-                          const dur = seg.end - seg.start;
-                          const segAbsent = allDancers.filter(n => !seg.dancers.includes(n));
-                          return (
-                            <div key={si} style={{ background:"var(--s2)", border:"1px solid var(--border)", borderRadius:8, padding:"10px 12px" }}>
-                              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
-                                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".9rem", color:"var(--accent)", fontWeight:700 }}>{fromMins(seg.start)} → {fromMins(seg.end)}</span>
-                                <span style={{ fontSize:".72rem", color:"var(--muted)", background:"var(--s3)", padding:"1px 7px", borderRadius:4 }}>
-                                  {Math.floor(dur/60)>0?`${Math.floor(dur/60)}小時`:""}{ dur%60>0?`${dur%60}分`:""}
-                                </span>
-                                <span style={{ fontSize:".72rem", color:"var(--muted)" }}>{seg.dancers.length} / {totalMembers} 人</span>
-                              </div>
-                              <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom: segAbsent.length?5:0 }}>
-                                {seg.dancers.map(n=><span className="chip ok" key={n}>✓ {n}</span>)}
-                              </div>
-                              {segAbsent.length > 0 && (
-                                <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:4 }}>
-                                  {segAbsent.map(n=><span className="chip no" key={n}>{n}</span>)}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : filledDancers.length >= 2 ? (
-                    <div style={{ fontSize:".82rem", color:"var(--muted)", marginBottom:10 }}>此時段內無重疊區間</div>
-                  ) : null}
-
-                  {/* 不行 */}
-                  {absentDancers.length > 0 && (
-                    <div>
-                      <div style={{ fontSize:".65rem", color:"var(--accent2)", letterSpacing:".1em", textTransform:"uppercase", marginBottom:6 }}>✗ 不行（未填寫）</div>
-                      <div className="chips">{absentDancers.map(n=><span className="chip no" key={n}>{n}</span>)}</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* ── GLOBAL OVERLAP SECTION (free + fixed mode) ── */}
       {!loading && (poll.mode !== "fixed" ? allDates.length > 0 : (poll.candidates||[]).length > 0) && (() => {
@@ -1306,16 +1220,38 @@ function AdminView({ poll }) {
         );
       })()}
 
-      {/* ── GANTT PER DATE (free mode only) ── */}
-      {!loading && poll.mode !== "fixed" && allDates.map(date => {
-        const allSlots = [...new Set(allDancers.flatMap(n=>(responses[n]||{})[date]||[]))].sort();
-
-        // Build per-dancer slots for this date
-        const dancerSlotsOnDate = {};
-        allDancers.forEach(n => {
-          const s = (responses[n]||{})[date];
-          if (s && s.length) dancerSlotsOnDate[n] = s;
-        });
+      {/* ── GANTT PER DATE (free + fixed mode) ── */}
+      {!loading && (() => {
+        // For fixed mode, build a synthetic date→slots map from candidate responses
+        let datesToRender = [];
+        if (poll.mode === "fixed") {
+          const candidateDates = [...new Set((poll.candidates||[]).map(c => c.date))].sort();
+          datesToRender = candidateDates;
+        } else {
+          datesToRender = allDates;
+        }
+        return datesToRender.map(date => {
+        // For fixed mode, collect all slots across all candidates on this date
+        let allSlots, dancerSlotsOnDate;
+        if (poll.mode === "fixed") {
+          const candidatesOnDate = (poll.candidates||[]).filter(c => c.date === date);
+          dancerSlotsOnDate = {};
+          allDancers.forEach(n => {
+            const allSlotsForDancer = candidatesOnDate.flatMap(c => {
+              const cKey = `${c.date}|${c.start}~${c.end}`;
+              return (responses[n]||{})[cKey] || [];
+            });
+            if (allSlotsForDancer.length) dancerSlotsOnDate[n] = allSlotsForDancer;
+          });
+          allSlots = [...new Set(Object.values(dancerSlotsOnDate).flat())].sort();
+        } else {
+          allSlots = [...new Set(allDancers.flatMap(n=>(responses[n]||{})[date]||[]))].sort();
+          dancerSlotsOnDate = {};
+          allDancers.forEach(n => {
+            const s = (responses[n]||{})[date];
+            if (s && s.length) dancerSlotsOnDate[n] = s;
+          });
+        }
 
         return (
           <div className="date-group" key={date}>
@@ -1434,7 +1370,8 @@ function AdminView({ poll }) {
             })()}
           </div>
         );
-      })}
+        });
+      })()}
 
       <Toast msg={toast.msg} on={toast.on} />
     </div>
