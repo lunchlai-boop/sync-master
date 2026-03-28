@@ -1211,17 +1211,28 @@ function AdminView({ poll }) {
         </div>
       )}
 
-      {/* ── GLOBAL OVERLAP SECTION (free mode only) ── */}
-      {!loading && poll.mode !== "fixed" && allDates.length > 0 && (() => {
-        const allOverlaps = allDates.flatMap(date => {
-          const dancerSlotsOnDate = {};
-          allDancers.forEach(n => {
-            const s = (responses[n]||{})[date];
-            if (s && s.length) dancerSlotsOnDate[n] = s;
-          });
-          const segs = calcOverlaps(dancerSlotsOnDate, 2);
-          return segs.map(seg => ({ ...seg, date }));
-        });
+      {/* ── GLOBAL OVERLAP SECTION (free + fixed mode) ── */}
+      {!loading && (poll.mode !== "fixed" ? allDates.length > 0 : (poll.candidates||[]).length > 0) && (() => {
+        const allOverlaps = poll.mode === "fixed"
+          ? (poll.candidates||[]).flatMap(c => {
+              const cKey = `${c.date}|${c.start}~${c.end}`;
+              const dancerSlotsForC = {};
+              allDancers.forEach(n => {
+                const slots = (responses[n]||{})[cKey];
+                if (slots && slots.length) dancerSlotsForC[n] = slots;
+              });
+              const segs = calcOverlaps(dancerSlotsForC, 2);
+              return segs.map(seg => ({ ...seg, date: c.date, candidateLabel: `${c.start}～${c.end}` }));
+            })
+          : allDates.flatMap(date => {
+              const dancerSlotsOnDate = {};
+              allDancers.forEach(n => {
+                const s = (responses[n]||{})[date];
+                if (s && s.length) dancerSlotsOnDate[n] = s;
+              });
+              const segs = calcOverlaps(dancerSlotsOnDate, 2);
+              return segs.map(seg => ({ ...seg, date }));
+            });
         const _threshold = (minThreshold !== null && minThreshold !== undefined) ? minThreshold : Math.ceil(Math.max(totalDancers, 1) / 2);
         const sortedAll = [...allOverlaps]
           .filter(seg => seg.dancers.length >= _threshold)
@@ -1232,7 +1243,7 @@ function AdminView({ poll }) {
           <div style={{ background:"rgba(180,255,90,.05)", border:"1px solid rgba(180,255,90,.2)", borderRadius:12, padding:"18px 20px", marginBottom:28 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:14 }}>
               <div style={{ fontSize:".7rem", color:"var(--accent)", letterSpacing:".12em", textTransform:"uppercase", fontFamily:"'DM Mono',monospace" }}>
-                ✦ 重疊時段分析（全部日期）
+                ✦ 重疊時段分析（{poll.mode === "fixed" ? "全部候選時段" : "全部日期"}）
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontSize:".75rem", color:"var(--muted)", whiteSpace:"nowrap" }}>至少</span>
@@ -1267,7 +1278,7 @@ function AdminView({ poll }) {
                   <div key={i} style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8, padding:"12px 14px" }}>
                     <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
                       <span style={{ fontFamily:"'DM Mono',monospace", fontSize:".75rem", color:"var(--accent3)", background:"var(--s2)", padding:"2px 8px", borderRadius:4 }}>
-                        {formatDateTW(seg.date)}
+                        {formatDateTW(seg.date)}{seg.candidateLabel ? ` ${seg.candidateLabel}` : ""}
                       </span>
                       <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"1rem", color:"var(--accent)", fontWeight:700 }}>
                         {fromMins(seg.start)} → {fromMins(seg.end)}
