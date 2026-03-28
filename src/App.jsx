@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot } from "firebase/firestore";
 
 /* ─────────────────────────────────────────────
    FIREBASE INIT
@@ -1013,17 +1013,18 @@ function AdminView({ poll }) {
   const memberLink = `${base}?room=${poll.roomId}`;
 
   useEffect(() => {
-    let cancelled = false;
-    async function refresh() {
-      const r = await loadResponses(poll.roomId);
-      if (!cancelled) { setResponses(r); setLoading(false); }
-    }
-    refresh();
-    const t = setInterval(refresh, 8000); // auto-refresh every 8s
-    return () => { cancelled = true; clearInterval(t); };
+    const unsub = onSnapshot(
+      doc(db, "responses", poll.roomId),
+      (snap) => {
+        setResponses(snap.exists() ? snap.data() : {});
+        setLoading(false);
+      },
+      (err) => { console.error("onSnapshot error:", err); setLoading(false); }
+    );
+    return () => unsub();
   }, [poll.roomId]);
 
-  const allDancers = Object.keys(responses);
+  const allDancers = Object.keys(responses).sort();
   const allDates = [...new Set(allDancers.flatMap(n => Object.keys(responses[n]||{})))].sort();
   const totalDancers = allDancers.length;
   const totalMembers = poll.totalMembers || totalDancers;
